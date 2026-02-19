@@ -1,0 +1,83 @@
+{
+  "manifest_version": "0.4",
+  "name": "sample-library-manager",
+  "display_name": "Sample Library Manager",
+  "version": "2.0.0",
+  "description": "Search, analyze, and organize audio sample libraries for music production. Supports BPM/key detection, MIDI reading, and sample organization across multiple libraries.",
+  "author": {
+    "name": "Sample Library Manager Contributors"
+  },
+  "license": "MIT",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/sample_library_manager/__main__.py"
+  },
+  "tools": [
+    {
+      "name": "search_samples",
+      "description": "Search for audio samples and MIDI files across all configured libraries"
+    },
+    {
+      "name": "search_samples_by_bpm",
+      "description": "Search samples and detect BPM for each result"
+    },
+    {
+      "name": "list_libraries",
+      "description": "Show configured sample library locations and status"
+    },
+    {
+      "name": "list_folders",
+      "description": "List top-level folders across all sample libraries"
+    },
+    {
+      "name": "count_samples_in_folder",
+      "description": "Count samples in a specific folder"
+    },
+    {
+      "name": "list_all_samples_in_folder",
+      "description": "List all samples in a folder"
+    },
+    {
+      "name": "analyze_sample",
+      "description": "Detect BPM and musical key of an audio sample"
+    },
+    {
+      "name": "read_midi",
+      "description": "Read a MIDI file and return notes in bar|beat format"
+    },
+    {
+      "name": "collect_samples",
+      "description": "Copy or move samples by keyword into a destination folder"
+    },
+    {
+      "name": "copy_samples",
+      "description": "Copy or move specific files by path into a destination folder"
+    },
+    {
+      "name": "collect_search_results",
+      "description": "Copy or move samples from last search results by number"
+    },
+    {
+      "name": "rename_with_metadata",
+      "description": "Rename samples by appending detected BPM and/or key"
+    },
+    {
+      "name": "sort_samples",
+      "description": "Sort samples into categorized subfolders"
+    }
+  ],
+  "user_config": {
+    "libraries": {
+      "type": "string",
+      "title": "Sample Library Paths",
+      "description": "JSON object mapping library names to paths, e.g. {\"My Samples\": \"/path/to/samples\"}. Leave empty for auto-detection.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+services:
+  sample-library-manager:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount your sample libraries as read-only
+      # Uncomment and adjust paths for your setup:
+      # - /path/to/your/samples:/samples:ro
+      # - /path/to/ableton/packs:/packs:ro
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      # Option 1: Use a mounted config file
+      # sample-library-manager --config /app/config.yaml
+      #
+      # Option 2: Set libraries via environment variable
+      - SLM_LIBRARIES={"Samples": "/samples", "Packs": "/packs"}
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
