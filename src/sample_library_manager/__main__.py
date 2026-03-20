@@ -1,4 +1,4 @@
-"""CLI entry point for the Sample Library Manager MCP server."""
+"""CLI entry point for Sample Library Manager."""
 
 import argparse
 import sys

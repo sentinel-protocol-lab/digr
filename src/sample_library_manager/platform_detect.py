@@ -1,4 +1,4 @@
-"""Cross-platform auto-detection of common sample library locations."""
+"""Cross-platform detection of common sample library locations."""
 
 import os
 import platform

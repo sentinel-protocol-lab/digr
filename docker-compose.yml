@@ -13,6 +13,6 @@ services:
       # Option 1: Use a mounted config file
       # sample-library-manager --config /app/config.yaml
       #
-      # Option 2: Set libraries via environment variable
+      # Option 2: Set libraries via environment
       - SLM_LIBRARIES={"Samples": "/samples", "Packs": "/packs"}
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
