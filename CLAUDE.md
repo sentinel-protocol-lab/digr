@@ -52,7 +52,7 @@ The server also accepts pipe-delimited, newline-delimited, and single path strin
 - `search_samples_by_bpm` — search + BPM detection (requires `[audio]` extras)
 - `read_midi` — parse MIDI files to bar|beat format
 - `sort_samples` — categorize into subfolders (Kicks, Snares, etc.)
-- `rename_with_metadata` — append BPM/key to filenames
+- `rename_with_metadata` — append BPM/key to filenames (prefix-only renaming is free; BPM/key detection requires Pro)
 
 ## Common Workflows
 
@@ -73,11 +73,12 @@ search_samples(keyword="reverse cymbal") → analyze_sample(filepath="...") → 
 
 ## Known Gotchas
 
-- **BPM detection halves/doubles on short samples** — librosa limitation, not a bug
+- **BPM detection halves/doubles on short samples** — autocorrelation limitation, not a bug
 - **One-shots return 0.0 BPM** — expected behavior for non-rhythmic content
 - **Cannot load samples into Simpler/Sampler via MCP** — use `ppal-create-clip` with `sampleFile` for audio clips instead
-- **librosa 0.11+ returns tempo as numpy array** — already handled with `float(np.asarray(tempo_raw).item())`
+- **Audio analysis uses numpy+scipy+soundfile** — no librosa/numba/llvmlite dependency (replaced for cross-platform compatibility)
 - **Search matches full path, not just filename** — "kick" matches both `/Drums/Kicks/808.wav` and `/kick_heavy.wav`
+- **Original librosa-based code** is backed up in `_librosa_backup/` with restore instructions
 
 ## Development
 

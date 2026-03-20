@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build .mcpb bundle
+        run: python build_mcpb.py
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Sample Library Manager v${{ steps.version.outputs.version }}"
+          body: |
+            ## Install
+
+            ### Claude Desktop (recommended)
+            1. Download `sample-library-manager-${{ steps.version.outputs.version }}.mcpb` below
+            2. Open Claude Desktop → **Settings** → **Extensions** → **Install Extension**
+            3. Select the `.mcpb` file — done!
+
+            ### Windows (fallback)
+            Download all three files (`install.bat`, `install.ps1`, and the `.mcpb`) into the same folder, then double-click `install.bat`.
+
+            ### Mac (fallback)
+            Download `install-mac.command` and the `.mcpb` into the same folder, then double-click `install-mac.command`.
+
+            ### Terminal (uvx)
+            ```bash
+            uvx --with 'sample-library-manager[audio]' sample-library-manager
+            ```
+
+            See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full configuration options.
+          files: |
+            dist/sample-library-manager-${{ steps.version.outputs.version }}.mcpb
+            install.bat
+            install.ps1
+            install-mac.command
+          draft: false
+          prerelease: false

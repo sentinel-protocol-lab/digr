@@ -237,23 +237,30 @@ async def rename_with_metadata(
     include_key: bool = True,
     confirm: bool = False,
 ) -> str:
-    """Rename audio samples by appending detected BPM and/or musical key to the filename.
+    """Rename audio samples by adding a prefix and/or appending detected BPM and musical key.
 
     First call returns a PREVIEW of old -> new names. Call again with confirm=true to execute.
-    Requires the [audio] extras (librosa). Pro feature.
+    Prefix-only renaming is free. BPM/key detection requires a Pro license and [audio] extras.
     """
-    gate = require_pro("rename_with_metadata")
-    if gate:
-        return gate
+    needs_audio = include_bpm or include_key
 
-    try:
-        import librosa
-        import numpy as np
-    except ImportError:
-        return (
-            "ERROR: Audio analysis requires the 'audio' extras. "
-            "Install with: pip install sample-library-manager[audio]"
-        )
+    # Only gate behind Pro when audio analysis is requested
+    if needs_audio:
+        gate = require_pro("rename_with_metadata")
+        if gate:
+            return gate
+
+    audio_engine = None
+    np = None
+    if needs_audio:
+        try:
+            from . import _audio_analysis as audio_engine
+            import numpy as np
+        except ImportError:
+            return (
+                "ERROR: Audio analysis requires the 'audio' extras. "
+                "Install with: pip install sample-library-manager[audio]"
+            )
 
     import warnings
 
@@ -262,6 +269,9 @@ async def rename_with_metadata(
     paths = parse_filepaths(filepaths)
     if not paths:
         return "ERROR: No file paths provided"
+
+    if not needs_audio and not prefix:
+        return "ERROR: Nothing to do. Provide a prefix, or set include_bpm/include_key to true."
 
     # Analyze all files and build rename plan
     plan: list[tuple[Path, Path, str]] = []
@@ -272,23 +282,24 @@ async def rename_with_metadata(
             continue
 
         try:
-            y, sr = librosa.load(str(src), duration=30)
             parts = []
 
-            if include_bpm:
-                tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
-                tempo = float(np.asarray(tempo_raw).item())
-                if tempo > 0:
-                    parts.append(f"{tempo:.0f}bpm")
+            if needs_audio:
+                y, sr = audio_engine.load_audio(str(src), duration=30)
 
-            if include_key:
-                chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-                key_idx = int(np.argmax(np.sum(chroma, axis=1)))
-                key_names = [
-                    "C", "Cs", "D", "Ds", "E", "F",
-                    "Fs", "G", "Gs", "A", "As", "B",
-                ]
-                parts.append(key_names[key_idx])
+                if include_bpm:
+                    tempo = audio_engine.detect_tempo(y, sr=sr)
+                    if tempo > 0:
+                        parts.append(f"{tempo:.0f}bpm")
+
+                if include_key:
+                    chroma = audio_engine.compute_chroma(y, sr=sr)
+                    key_idx = int(np.argmax(np.sum(chroma, axis=1)))
+                    key_names = [
+                        "C", "Cs", "D", "Ds", "E", "F",
+                        "Fs", "G", "Gs", "A", "As", "B",
+                    ]
+                    parts.append(key_names[key_idx])
 
             stem = src.stem
             suffix = src.suffix
@@ -297,7 +308,12 @@ async def rename_with_metadata(
                 new_name += "_" + "_".join(parts)
             new_name += suffix
             new_path = src.parent / new_name
-            info = " + ".join(parts) if parts else "no metadata detected"
+            info_parts = []
+            if prefix:
+                info_parts.append(f"prefix: {prefix}")
+            if parts:
+                info_parts.extend(parts)
+            info = " + ".join(info_parts) if info_parts else "no changes"
             plan.append((src, new_path, info))
 
         except Exception as e:

@@ -32,3 +32,15 @@ Thumbs.db
 # Editor files
 .vscode/
 .idea/
+
+# Dev-only project files
+CLAUDE.md
+generate_meeting_pdf.py
+build_mcpb.py
+benchmark_audio.py
+_librosa_backup/
+
+# Standalone installers (distributed separately alongside .mcpb)
+install.bat
+install.ps1
+install-mac.command

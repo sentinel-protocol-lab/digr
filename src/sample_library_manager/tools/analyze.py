@@ -9,13 +9,13 @@ from ._shared import identify_library, require_pro
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
-def _require_librosa():
-    """Import librosa and numpy, raising a clear error if not installed."""
+def _require_audio():
+    """Import audio analysis module, raising a clear error if not installed."""
     try:
-        import librosa
+        from . import _audio_analysis as audio
         import numpy as np
 
-        return librosa, np
+        return audio, np
     except ImportError:
         raise RuntimeError(
             "Audio analysis requires the 'audio' extras.\n"
@@ -42,13 +42,13 @@ async def analyze_sample(filepath: str) -> str:
     """Detect BPM and musical key of an audio sample.
 
     Returns tempo, estimated key, duration, and sample rate.
-    Requires the [audio] extras (librosa). Pro feature.
+    Requires the [audio] extras. Pro feature.
     """
     gate = require_pro("analyze_sample")
     if gate:
         return gate
 
-    librosa, np = _require_librosa()
+    audio, np = _require_audio()
 
     file_path = Path(filepath)
 
@@ -61,20 +61,19 @@ async def analyze_sample(filepath: str) -> str:
 
     try:
         # Load audio file (analyze first 30 seconds for speed)
-        y, sr = librosa.load(str(file_path), duration=30)
+        y, sr = audio.load_audio(str(file_path), duration=30)
 
-        # Detect BPM (librosa 0.11+ returns an array, extract the scalar)
-        tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
-        tempo = float(np.asarray(tempo_raw).item())
+        # Detect BPM
+        tempo = audio.detect_tempo(y, sr=sr)
 
         # Detect key using chromagram analysis
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma = audio.compute_chroma(y, sr=sr)
         key_idx = int(np.argmax(np.sum(chroma, axis=1)))
         keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         detected_key = keys[key_idx]
 
         # Get duration
-        duration = librosa.get_duration(y=y, sr=sr)
+        duration = audio.get_duration(y, sr=sr)
 
         # Determine which library this sample is from
         library_name = identify_library(file_path)

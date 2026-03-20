@@ -16,6 +16,11 @@ _last_search_results: list[tuple[str, str]] = []  # [(path, library_name), ...]
 # Libraries dict set at server startup from config
 _libraries: dict[str, Path] = {}
 
+# --- License gate configuration ---
+# Set to True when payment infrastructure is live and Gumroad license keys are available.
+# See GTM plan Step 7.
+ENFORCE_LICENSE_GATE = False
+
 # --- License key state ---
 _license_key: str | None = None
 _license_valid: bool = False
@@ -31,6 +36,62 @@ def set_libraries(libraries: dict[str, Path]) -> None:
 def get_libraries() -> dict[str, Path]:
     """Get the active sample libraries."""
     return _libraries
+
+
+def add_library_entry(name: str, path: Path) -> None:
+    """Add a library to the in-memory store AND persist it to config.yaml."""
+    global _libraries
+    _libraries[name] = path
+    _save_libraries_to_config()
+
+
+def remove_library_entry(name: str) -> bool:
+    """Remove a library from the in-memory store AND persist the change. Returns True if found."""
+    global _libraries
+    if name not in _libraries:
+        return False
+    del _libraries[name]
+    _save_libraries_to_config()
+    return True
+
+
+def _save_libraries_to_config() -> None:
+    """Persist the current libraries dict to config.yaml."""
+    from ..platform_detect import default_config_path
+
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+
+    config_path = default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read existing config to preserve other settings
+    existing: dict = {}
+    if config_path.exists():
+        content = config_path.read_text(encoding="utf-8")
+        if yaml is not None:
+            try:
+                existing = yaml.safe_load(content) or {}
+            except Exception:
+                existing = {}
+
+    # Update libraries section only
+    existing["libraries"] = {name: str(p) for name, p in _libraries.items()}
+
+    if yaml is not None:
+        config_path.write_text(
+            yaml.dump(existing, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+    else:
+        # Fallback: write as JSON if pyyaml not available
+        import json
+
+        config_path.with_suffix(".json").write_text(
+            json.dumps(existing, indent=2), encoding="utf-8"
+        )
 
 
 def set_last_search_results(results: list[tuple[str, str]]) -> None:
@@ -81,6 +142,8 @@ def require_pro(tool_name: str) -> str | None:
             return gate
         # ... rest of tool logic
     """
+    if not ENFORCE_LICENSE_GATE:
+        return None
     if _license_valid:
         return None
     return (

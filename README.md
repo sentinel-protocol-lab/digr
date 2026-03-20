@@ -1,8 +1,42 @@
 # Sample Library Manager
 
-MCP server for searching, analyzing, and organizing audio sample libraries. Works with any MCP-compatible client (Claude Desktop, Claude Code, Cursor, VS Code Copilot, OpenAI Codex, and more).
+**Search your samples by describing what you want.**
+
+"Find me some dark 170bpm drum breaks." "What key is this pad in?"
+"Sort my downloads into kicks, snares, hats, and everything else."
+
+Sample Library Manager connects your AI assistant to your audio files.
+It searches across all your sample folders, detects BPM and key,
+and helps you organise thousands of files without manual browsing.
+
+Works with Claude Desktop, Claude Code, Cursor, VS Code, and any
+MCP-compatible client. Mac and Windows. Any DAW or no DAW at all.
+
+Free for personal use · [License (BSL 1.1)](LICENSE)
 
 ## Install
+
+### Claude Desktop — MCPB (Recommended)
+
+Download `sample-library-manager-1.0.0.mcpb` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases), then:
+
+1. Open Claude Desktop → **Settings** → **Extensions**
+2. Click **Install Extension** and select the `.mcpb` file
+3. Done — Claude handles everything automatically
+
+### Windows — One-Click Installer
+
+Download `install.bat` and `install.ps1` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases) into the same folder as the `.mcpb` file, then double-click `install.bat`.
+
+Installs `uv`, registers the server in Claude Desktop, and restarts it automatically.
+
+### Mac — One-Click Installer
+
+Download `install-mac.command` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases) into the same folder as the `.mcpb` file, then double-click it.
+
+> If macOS says it can't verify the file (web download only): right-click → **Open** → **Open**. This one-time step is not needed for USB installs.
+
+Installs `uv`, registers the server in Claude Desktop, and restarts it automatically.
 
 ### PyPI (pip / uvx)
 
@@ -10,17 +44,13 @@ MCP server for searching, analyzing, and organizing audio sample libraries. Work
 # Basic (search, browse, organize, MIDI reading)
 pip install sample-library-manager
 
-# Full (adds BPM/key detection via librosa)
+# Full (adds BPM/key detection)
 pip install sample-library-manager[audio]
 
 # Or run directly with uvx
 uvx sample-library-manager
 uvx --with 'sample-library-manager[audio]' sample-library-manager
 ```
-
-### MCPB Bundle (one-click)
-
-Download `sample-library-manager.mcpb` from [Releases](https://github.com/sample-library-manager/sample-library-manager/releases) and open it with Claude Desktop.
 
 ### Docker
 
@@ -123,26 +153,32 @@ If no config is provided, the server auto-detects common sample locations:
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `search_samples` | Search for audio samples and MIDI files across all libraries |
-| `search_samples_by_bpm` | Search and auto-detect BPM for each result |
-| `list_libraries` | Show configured library locations and status |
-| `list_folders` | List top-level folders across all libraries |
-| `count_samples_in_folder` | Count samples in a specific folder |
-| `list_all_samples_in_folder` | List all samples in a folder |
-| `analyze_sample` | Detect BPM and musical key (requires `[audio]`) |
-| `read_midi` | Read MIDI file notes in bar\|beat format |
-| `collect_samples` | Copy/move samples by keyword |
-| `copy_samples` | Copy/move specific files by path |
-| `collect_search_results` | Copy/move from last search results |
-| `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) |
-| `sort_samples` | Sort into categorized subfolders |
+| Tool | Description | Tier |
+|------|-------------|------|
+| `search_samples` | Search for audio samples and MIDI files across all libraries | Free |
+| `list_libraries` | Show configured library locations and status | Free |
+| `list_folders` | List top-level folders across all libraries | Free |
+| `count_samples_in_folder` | Count samples in a specific folder | Free |
+| `list_all_samples_in_folder` | List all samples in a folder | Free |
+| `collect_samples` | Copy/move samples by keyword | Free |
+| `copy_samples` | Copy/move specific files by path | Free |
+| `collect_search_results` | Copy/move from last search results | Free |
+| `add_library` | Add a sample library path at runtime | Free |
+| `remove_library` | Remove a sample library by name | Free |
+| `analyze_sample` | Detect BPM and musical key (requires `[audio]`) | Pro |
+| `search_samples_by_bpm` | Search and auto-detect BPM for each result | Pro |
+| `read_midi` | Read MIDI file notes in bar\|beat format | Pro |
+| `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) | Pro |
+| `sort_samples` | Sort into categorized subfolders | Pro |
+
+Pro tools require a license key. Set via either method:
+- **File**: `~/.config/sample-library-manager/license.key`
+- **Environment**: `SLM_LICENSE_KEY=your-key-here`
 
 ## Development
 
 ```bash
-git clone https://github.com/sample-library-manager/sample-library-manager
+git clone https://github.com/sentinel-protocol-lab/sample-library-manager
 cd sample-library-manager
 pip install -e ".[audio,dev]"
 pytest
@@ -150,4 +186,6 @@ pytest
 
 ## License
 
-MIT
+Business Source License 1.1 — see [LICENSE](LICENSE) for details.
+
+Free for production use. You may not use this software to offer a competing commercial sample library management product or service. Converts to Apache 2.0 on 2029-03-19.

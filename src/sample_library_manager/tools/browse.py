@@ -1,8 +1,8 @@
-"""Browse tools: list_folders, list_libraries, count_samples_in_folder, list_all_samples_in_folder."""
+"""Browse tools: list_folders, list_libraries, add_library, remove_library, count_samples_in_folder, list_all_samples_in_folder."""
 
 from pathlib import Path
 
-from ._shared import get_libraries
+from ._shared import add_library_entry, get_libraries, remove_library_entry
 
 
 async def list_libraries() -> str:
@@ -11,10 +11,9 @@ async def list_libraries() -> str:
     if not libraries:
         return (
             "No sample libraries configured.\n\n"
-            "Configure libraries via:\n"
-            "  - Config file: ~/.config/sample-library-manager/config.yaml\n"
-            "  - Environment: SLM_LIBRARIES='{\"name\": \"/path\"}'\n"
-            "  - CLI: --library 'Name=/path'"
+            "Use the add_library tool to add a sample folder. "
+            "Just provide a name and the folder path.\n\n"
+            "Example: add_library(name='My Samples', path='~/Music/Samples')"
         )
 
     result = "Configured Sample Libraries:\n\n"
@@ -24,6 +23,59 @@ async def list_libraries() -> str:
         result += f"   Path: {library}\n\n"
 
     return result
+
+
+async def add_library(name: str, path: str) -> str:
+    """Add a sample library folder so all tools can access it. Saves to config and takes effect immediately.
+
+    Args:
+        name: A friendly name for this library (e.g. 'Music Samples', 'Drum Kits').
+        path: The full folder path on disk (e.g. '~/Music/Samples' or 'D:/Samples').
+    """
+    folder = Path(path).expanduser().resolve()
+
+    if not folder.exists():
+        return (
+            f"Folder not found: {folder}\n\n"
+            f"Please check the path and try again. "
+            f"Tip: drag the folder from Finder into the chat to paste the exact path."
+        )
+
+    if not folder.is_dir():
+        return f"'{folder}' is a file, not a folder. Please provide a folder path."
+
+    add_library_entry(name, folder)
+
+    # Quick count of audio files for confirmation
+    audio_count = 0
+    for ext in ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.flac", "*.ogg"]:
+        audio_count += len(list(folder.rglob(ext)))
+
+    midi_count = len(list(folder.rglob("*.mid"))) + len(list(folder.rglob("*.midi")))
+
+    return (
+        f"Library '{name}' added successfully!\n\n"
+        f"  Path: {folder}\n"
+        f"  Audio files found: {audio_count}\n"
+        f"  MIDI files found: {midi_count}\n\n"
+        f"You can now search, browse, and analyze samples in this library."
+    )
+
+
+async def remove_library(name: str) -> str:
+    """Remove a sample library from the configuration. Does not delete any files on disk.
+
+    Args:
+        name: The name of the library to remove (as shown by list_libraries).
+    """
+    if remove_library_entry(name):
+        return f"Library '{name}' removed from configuration. No files were deleted."
+    else:
+        libraries = get_libraries()
+        if libraries:
+            available = ", ".join(f"'{n}'" for n in libraries)
+            return f"Library '{name}' not found. Available libraries: {available}"
+        return f"Library '{name}' not found. No libraries are currently configured."
 
 
 async def list_folders() -> str:

@@ -2,15 +2,19 @@
   "manifest_version": "0.4",
   "name": "sample-library-manager",
   "display_name": "Sample Library Manager",
-  "version": "2.0.0",
-  "description": "Search, analyze, and organize audio sample libraries for music production. Supports BPM/key detection, MIDI reading, and sample organization across multiple libraries.",
+  "version": "1.0.0",
+  "description": "Search your sample library by describing what you want. BPM/key detection, MIDI reading, and AI-powered organisation across multiple libraries.",
   "author": {
-    "name": "Sample Library Manager Contributors"
+    "name": "Sentinel Protocol Lab"
   },
-  "license": "MIT",
+  "license": "BUSL-1.1",
   "server": {
     "type": "uv",
-    "entry_point": "src/sample_library_manager/__main__.py"
+    "entry_point": "src/sample_library_manager/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--extra", "audio", "sample-library-manager"]
+    }
   },
   "tools": [
     {
@@ -64,6 +68,14 @@
     {
       "name": "sort_samples",
       "description": "Sort samples into categorized subfolders"
+    },
+    {
+      "name": "add_library",
+      "description": "Add a sample library path at runtime"
+    },
+    {
+      "name": "remove_library",
+      "description": "Remove a sample library by name"
     }
   ],
   "user_config": {

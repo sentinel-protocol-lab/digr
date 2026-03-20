@@ -4,20 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sample-library-manager"
-version = "2.0.0"
-description = "MCP server for searching, analyzing, and organizing audio sample libraries"
+version = "1.0.0"
+description = "Search, organize, and analyze your audio sample library using natural language. Works with any DAW."
 readme = "README.md"
-license = "MIT"
-requires-python = ">=3.11"
+license = "BUSL-1.1"
+requires-python = ">=3.11,<3.14"
 authors = [
-    { name = "Sample Library Manager Contributors" },
+    { name = "Sentinel Protocol Lab" },
 ]
-keywords = ["mcp", "audio", "samples", "music-production", "ableton", "daw"]
+keywords = ["mcp", "audio", "samples", "music-production", "ableton", "daw", "sound-design", "sample-library", "audio-search", "fl-studio", "logic-pro", "reaper", "bitwig"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "Topic :: Multimedia :: Sound/Audio",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -31,8 +31,8 @@ dependencies = [
 
 [project.optional-dependencies]
 audio = [
-    "librosa>=0.11.0",
     "numpy>=1.24.0",
+    "scipy>=1.11.0",
     "soundfile>=0.12.0",
 ]
 full = [
@@ -48,8 +48,9 @@ dev = [
 sample-library-manager = "sample_library_manager.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/sample-library-manager/sample-library-manager"
-Repository = "https://github.com/sample-library-manager/sample-library-manager"
+Homepage = "https://github.com/sentinel-protocol-lab/sample-library-manager"
+Repository = "https://github.com/sentinel-protocol-lab/sample-library-manager"
+Issues = "https://github.com/sentinel-protocol-lab/sample-library-manager/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sample_library_manager"]

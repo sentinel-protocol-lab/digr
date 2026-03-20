@@ -4,6 +4,7 @@ import pytest
 
 from sample_library_manager.config import Config
 from sample_library_manager.server import create_server
+import sample_library_manager.tools._shared as shared
 from sample_library_manager.tools._shared import (
     get_last_search_results,
     set_license_key,
@@ -96,12 +97,17 @@ class TestProGatingInWorkflow:
 
     @pytest.mark.asyncio
     async def test_sort_blocked_without_license(self, mock_libraries, tmp_path):
-        set_license_key(None)
-        dest = str(tmp_path / "sorted")
-        result = await sort_samples("kick", dest, confirm=False)
-        assert "Pro feature" in result
-        assert "sort_samples" in result
-        assert not (tmp_path / "sorted").exists()
+        original = shared.ENFORCE_LICENSE_GATE
+        shared.ENFORCE_LICENSE_GATE = True
+        try:
+            set_license_key(None)
+            dest = str(tmp_path / "sorted")
+            result = await sort_samples("kick", dest, confirm=False)
+            assert "Pro feature" in result
+            assert "sort_samples" in result
+            assert not (tmp_path / "sorted").exists()
+        finally:
+            shared.ENFORCE_LICENSE_GATE = original
 
     @pytest.mark.asyncio
     async def test_sort_works_with_license(self, mock_libraries, tmp_path):

@@ -2,7 +2,9 @@
 
 import pytest
 
+import sample_library_manager.tools._shared as shared
 from sample_library_manager.tools._shared import (
+    ENFORCE_LICENSE_GATE,
     is_pro_licensed,
     require_pro,
     set_license_key,
@@ -44,6 +46,14 @@ class TestKeyValidation:
 class TestRequireProGating:
     """Test that require_pro returns correct messages or None."""
 
+    def setup_method(self):
+        """Enforce license gate for gating tests."""
+        self._original = shared.ENFORCE_LICENSE_GATE
+        shared.ENFORCE_LICENSE_GATE = True
+
+    def teardown_method(self):
+        shared.ENFORCE_LICENSE_GATE = self._original
+
     def test_blocks_without_license(self):
         set_license_key(None)
         result = require_pro("analyze_sample")
@@ -73,6 +83,29 @@ class TestRequireProGating:
         assert result is None
 
     def test_passes_for_all_pro_tools(self):
+        set_license_key("SLM-PRO-abcd1234-test")
+        for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
+                      "sort_samples", "rename_with_metadata"]:
+            assert require_pro(tool) is None
+
+
+class TestEnforceLicenseGateOff:
+    """Test that all Pro tools are unlocked when ENFORCE_LICENSE_GATE is False."""
+
+    def setup_method(self):
+        self._original = shared.ENFORCE_LICENSE_GATE
+        shared.ENFORCE_LICENSE_GATE = False
+
+    def teardown_method(self):
+        shared.ENFORCE_LICENSE_GATE = self._original
+
+    def test_all_pro_tools_unlocked_without_key(self):
+        set_license_key(None)
+        for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
+                      "sort_samples", "rename_with_metadata"]:
+            assert require_pro(tool) is None
+
+    def test_all_pro_tools_unlocked_with_key(self):
         set_license_key("SLM-PRO-abcd1234-test")
         for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
                       "sort_samples", "rename_with_metadata"]:

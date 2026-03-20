@@ -6,10 +6,12 @@ from .config import Config
 from .tools._shared import set_libraries, set_license_key
 from .tools.analyze import analyze_sample, read_midi
 from .tools.browse import (
+    add_library,
     count_samples_in_folder,
     list_all_samples_in_folder,
     list_folders,
     list_libraries,
+    remove_library,
 )
 from .tools.organize import (
     collect_samples,
@@ -38,6 +40,9 @@ def create_server(config: Config | None = None) -> FastMCP:
         "sample-library-manager",
         instructions=(
             "MCP server for searching, analyzing, and organizing audio sample libraries.\n\n"
+            "SETUP:\n"
+            "- If no libraries are configured, use add_library to add one first\n"
+            "- The user can say a folder name and path, and you call add_library\n\n"
             "TOOL SEQUENCING:\n"
             "- Start with search_samples to find samples by keyword\n"
             "- Use collect_search_results AFTER search_samples (reads cached results)\n"
@@ -60,6 +65,8 @@ def create_server(config: Config | None = None) -> FastMCP:
 
     # --- Browse tools ---
     mcp.tool()(list_libraries)
+    mcp.tool()(add_library)
+    mcp.tool()(remove_library)
     mcp.tool()(list_folders)
     mcp.tool()(count_samples_in_folder)
     mcp.tool()(list_all_samples_in_folder)

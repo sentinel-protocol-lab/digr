@@ -9,13 +9,13 @@ from ._shared import (
 )
 
 
-def _require_librosa():
-    """Import librosa and numpy, raising a clear error if not installed."""
+def _require_audio():
+    """Import audio analysis module, raising a clear error if not installed."""
     try:
-        import librosa
+        from . import _audio_analysis as audio
         import numpy as np
 
-        return librosa, np
+        return audio, np
     except ImportError:
         raise RuntimeError(
             "Audio analysis requires the 'audio' extras. "
@@ -67,7 +67,7 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
     if gate:
         return gate
 
-    librosa, np = _require_librosa()
+    audio, np = _require_audio()
 
     matches = search_all_libraries(keyword, max_results)
 
@@ -82,9 +82,8 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
         folder = Path(path).parent.name
 
         try:
-            y, sr = librosa.load(path, duration=15)
-            tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
-            tempo = float(np.asarray(tempo_raw).item())
+            y, sr = audio.load_audio(path, duration=15)
+            tempo = audio.detect_tempo(y, sr=sr)
 
             result += f"{i}. {filename}\n"
             result += f"   BPM: {tempo:.1f}\n"

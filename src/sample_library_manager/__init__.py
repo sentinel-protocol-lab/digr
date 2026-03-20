@@ -1,3 +1,3 @@
 """Sample Library Manager - MCP server for audio sample libraries."""
 
-__version__ = "2.0.0"
+__version__ = "1.0.0"
