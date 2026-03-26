@@ -24,6 +24,19 @@ Download `sample-library-manager-1.0.0.mcpb` from [Releases](https://github.com/
 2. Click **Install Extension** and select the `.mcpb` file
 3. Done — Claude handles everything automatically
 
+### Upgrading from a Previous Version
+
+Claude Desktop installs extensions side-by-side — a new `.mcpb` does **not** overwrite the old one. To upgrade:
+
+1. Open Claude Desktop → **Settings** → **Extensions**
+2. Find "Sample Library Manager" → click **Remove**
+3. Delete the leftover data folder:
+   - **Mac**: `~/Library/Application Support/SampleLibraryManager/`
+   - **Windows**: `%APPDATA%\SampleLibraryManager\`
+4. Install the new `.mcpb` file as normal (step 2 above)
+
+This ensures all old code and cached data is fully replaced.
+
 ### Windows — One-Click Installer
 
 Download `install.bat` and `install.ps1` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases) into the same folder as the `.mcpb` file, then double-click `install.bat`.

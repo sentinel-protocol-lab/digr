@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from pathlib import Path
 
 
 def main():
@@ -61,8 +62,21 @@ examples:
         action="version",
         version=f"%(prog)s {_get_version()}",
     )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Update to the latest version from GitHub",
+    )
 
     args = parser.parse_args()
+
+    # Handle update before anything else
+    if args.update:
+        from .updater import run_update
+
+        install_dir = Path(__file__).resolve().parent.parent.parent
+        run_update(install_dir)
+        sys.exit(0)
 
     # Load config with layered overrides
     from .config import load_config
