@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "sample-library-manager"
 version = "1.0.0"
 description = "Search, organize, and analyze your audio sample library using natural language. Works with any DAW."
-readme = "README.md"
 license = "BUSL-1.1"
 requires-python = ">=3.11,<3.14"
 authors = [
