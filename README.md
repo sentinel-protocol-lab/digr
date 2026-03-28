@@ -14,6 +14,17 @@ MCP-compatible client. Mac and Windows. Any DAW or no DAW at all.
 
 Free for personal use · [License (BSL 1.1)](LICENSE)
 
+## Model Recommendations
+
+Sample Library Manager works with any MCP-compatible AI model, but results
+vary with model capability:
+
+- **Claude Opus / Sonnet** — Recommended. Handles multi-step workflows
+  (search → collect, preview → confirm) reliably with minimal guidance.
+- **Claude Haiku / lighter models** — Functional, but may need more explicit
+  instructions. If the model skips steps or misformats parameters, try
+  breaking your request into smaller, single-step prompts.
+
 ## Install
 
 ### Claude Desktop — MCPB (Recommended)
