@@ -7,7 +7,7 @@ name = "sample-library-manager"
 version = "1.0.1"
 description = "Search, organize, and analyze your audio sample library using natural language. Works with any DAW."
 license = "BUSL-1.1"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 authors = [
     { name = "Sentinel Protocol Lab" },
 ]
@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 dependencies = [
