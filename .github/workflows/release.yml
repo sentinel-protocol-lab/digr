@@ -5,6 +5,9 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -28,12 +31,12 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Sample Library Manager v${{ steps.version.outputs.version }}"
+          name: "Digr v${{ steps.version.outputs.version }}"
           body: |
             ## Install
 
             ### Claude Desktop (recommended)
-            1. Download `sample-library-manager-${{ steps.version.outputs.version }}.mcpb` below
+            1. Download `digr-${{ steps.version.outputs.version }}.mcpb` below
             2. Open Claude Desktop → **Settings** → **Extensions** → **Install Extension**
             3. Select the `.mcpb` file — done!
 
@@ -45,12 +48,12 @@ jobs:
 
             ### Terminal (uvx)
             ```bash
-            uvx --with 'sample-library-manager[audio]' sample-library-manager
+            uvx --with 'digr[audio]' digr
             ```
 
             See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full configuration options.
           files: |
-            dist/sample-library-manager-${{ steps.version.outputs.version }}.mcpb
+            dist/digr-${{ steps.version.outputs.version }}.mcpb
             install.bat
             install.ps1
             install-mac.command

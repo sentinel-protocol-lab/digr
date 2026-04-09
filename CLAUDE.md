@@ -1,4 +1,4 @@
-# Sample Library Manager
+# Digr
 
 MCP server for searching, analyzing, and organizing audio sample libraries for music production.
 
@@ -7,7 +7,7 @@ MCP server for searching, analyzing, and organizing audio sample libraries for m
 - **Framework**: FastMCP (`mcp.server.fastmcp`) — auto-generates tool schemas from Python type hints
 - **Transports**: `stdio` (default, for Claude Desktop/Code) and `streamable-http` (for VS Code, Cursor, remote)
 - **Config**: Layered — auto-detect > config file > env vars > CLI args (highest priority)
-- **Structure**: `src/sample_library_manager/` with `tools/` subpackage (search, browse, analyze, organize, _shared)
+- **Structure**: `src/digr/` with `tools/` subpackage (search, browse, analyze, organize, _shared)
 - **State**: Library paths and search result cache stored in `tools/_shared.py` module-level variables
 
 ## Tool Sequencing Rules
@@ -93,12 +93,12 @@ pytest
 ruff check src/
 
 # Run server locally
-sample-library-manager                                    # stdio transport
-sample-library-manager --transport streamable-http        # HTTP on port 8000
+digr                                    # stdio transport
+digr --transport streamable-http        # HTTP on port 8000
 ```
 
 ## License Key Setup
 
 Pro features require a license key. Set via either method:
-- **File**: `~/.config/sample-library-manager/license.key` (just the key string, no whitespace)
-- **Environment**: `SLM_LICENSE_KEY=your-key-here`
+- **File**: `~/.config/digr/license.key` (just the key string, no whitespace)
+- **Environment**: `DIGR_LICENSE_KEY=your-key-here`

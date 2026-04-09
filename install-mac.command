@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sample Library Manager — Mac Installer
+# Digr — Mac Installer
 # Double-click this file to install.
 # If macOS blocks it on first run: right-click → Open → Open (web downloads only).
 
@@ -14,7 +14,7 @@ warn()  { echo -e "   ${YELLOW}!!${NC}  $1"; }
 fail()  { echo -e "   ${RED}X${NC}   $1"; echo ""; read -p "Press Enter to exit..."; exit 1; }
 
 echo ""
-echo "  Sample Library Manager — Installer"
+echo "  Digr — Installer"
 echo "  ====================================="
 echo ""
 
@@ -52,7 +52,7 @@ if [ -z "$MCPB" ]; then
 fi
 ok "Found bundle: $(basename "$MCPB")"
 
-INSTALL_DIR="$HOME/Library/Application Support/SampleLibraryManager"
+INSTALL_DIR="$HOME/Library/Application Support/Digr"
 step "Installing to: $INSTALL_DIR"
 
 rm -rf "$INSTALL_DIR"
@@ -91,9 +91,9 @@ var raw = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js
 var config = JSON.parse(raw);
 
 if (!config.mcpServers) config.mcpServers = {};
-config.mcpServers["sample-library-manager"] = {
+config.mcpServers["digr"] = {
     command: "$UV_PATH",
-    args: ["run", "--directory", "$INSTALL_DIR", "--extra", "audio", "sample-library-manager"]
+    args: ["run", "--directory", "$INSTALL_DIR", "--extra", "audio", "digr"]
 };
 
 var out = JSON.stringify(config, null, 2);
@@ -124,7 +124,7 @@ echo ""
 echo "  ====================================="
 echo -e "  ${GREEN}Installation complete!${NC}"
 echo ""
-echo "  Sample Library Manager is now available in Claude Desktop."
+echo "  Digr is now available in Claude Desktop."
 echo "  The first launch downloads audio libraries (~1 min). After that it's instant."
 echo ""
 read -p "Press Enter to close..."

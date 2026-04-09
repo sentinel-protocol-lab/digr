@@ -259,7 +259,7 @@ async def rename_with_metadata(
         except ImportError:
             return (
                 "ERROR: Audio analysis requires the 'audio' extras. "
-                "Install with: pip install sample-library-manager[audio]"
+                "Install with: pip install digr[audio]"
             )
 
     import warnings

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sample-library-manager"
+name = "digr"
 version = "1.0.1"
 description = "Search, organize, and analyze your audio sample library using natural language. Works with any DAW."
 license = "BUSL-1.1"
@@ -36,7 +36,7 @@ audio = [
     "soundfile>=0.12.0",
 ]
 full = [
-    "sample-library-manager[audio]",
+    "digr[audio]",
 ]
 dev = [
     "pytest>=7.0",
@@ -45,15 +45,15 @@ dev = [
 ]
 
 [project.scripts]
-sample-library-manager = "sample_library_manager.__main__:main"
+digr = "digr.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/sentinel-protocol-lab/sample-library-manager"
-Repository = "https://github.com/sentinel-protocol-lab/sample-library-manager"
-Issues = "https://github.com/sentinel-protocol-lab/sample-library-manager/issues"
+Homepage = "https://github.com/sentinel-protocol-lab/digr"
+Repository = "https://github.com/sentinel-protocol-lab/digr"
+Issues = "https://github.com/sentinel-protocol-lab/digr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sample_library_manager"]
+packages = ["src/digr"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -2,8 +2,8 @@
 
 import pytest
 
-import sample_library_manager.tools._shared as shared
-from sample_library_manager.tools._shared import (
+import digr.tools._shared as shared
+from digr.tools._shared import (
     ENFORCE_LICENSE_GATE,
     is_pro_licensed,
     require_pro,
@@ -27,19 +27,19 @@ class TestKeyValidation:
         assert not is_pro_licensed()
 
     def test_too_few_parts_rejected(self):
-        set_license_key("SLM-PRO")
+        set_license_key("DIGR-PRO")
         assert not is_pro_licensed()
 
     def test_three_parts_rejected(self):
-        set_license_key("SLM-PRO-onlythree")
+        set_license_key("DIGR-PRO-onlythree")
         assert not is_pro_licensed()
 
     def test_valid_four_parts_accepted(self):
-        set_license_key("SLM-PRO-abcd1234-payload")
+        set_license_key("DIGR-PRO-abcd1234-payload")
         assert is_pro_licensed()
 
     def test_valid_many_parts_accepted(self):
-        set_license_key("SLM-PRO-segment1-segment2-segment3")
+        set_license_key("DIGR-PRO-segment1-segment2-segment3")
         assert is_pro_licensed()
 
 
@@ -69,7 +69,7 @@ class TestRequireProGating:
         set_license_key(None)
         result = require_pro("read_midi")
         assert "license.key" in result
-        assert "SLM_LICENSE_KEY" in result
+        assert "DIGR_LICENSE_KEY" in result
 
     def test_message_lists_free_tools(self):
         set_license_key(None)
@@ -78,12 +78,12 @@ class TestRequireProGating:
         assert "collect_search_results" in result
 
     def test_passes_with_valid_license(self):
-        set_license_key("SLM-PRO-abcd1234-test")
+        set_license_key("DIGR-PRO-abcd1234-test")
         result = require_pro("analyze_sample")
         assert result is None
 
     def test_passes_for_all_pro_tools(self):
-        set_license_key("SLM-PRO-abcd1234-test")
+        set_license_key("DIGR-PRO-abcd1234-test")
         for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
                       "sort_samples", "rename_with_metadata"]:
             assert require_pro(tool) is None
@@ -106,7 +106,7 @@ class TestEnforceLicenseGateOff:
             assert require_pro(tool) is None
 
     def test_all_pro_tools_unlocked_with_key(self):
-        set_license_key("SLM-PRO-abcd1234-test")
+        set_license_key("DIGR-PRO-abcd1234-test")
         for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
                       "sort_samples", "rename_with_metadata"]:
             assert require_pro(tool) is None

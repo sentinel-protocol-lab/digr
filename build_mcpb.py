@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build script: packages sample-library-manager as a distributable .mcpb bundle.
+"""Build script: packages digr as a distributable .mcpb bundle.
 
 An MCPB file is a zip archive that Claude Desktop can open directly to install
 an MCP server — no Terminal or JSON editing required by the end user.
@@ -8,7 +8,7 @@ Usage:
     python build_mcpb.py
 
 Output:
-    dist/sample-library-manager-{version}.mcpb
+    dist/digr-{version}.mcpb
 """
 
 import fnmatch
@@ -41,7 +41,7 @@ def is_ignored(path: Path, patterns: list[str]) -> bool:
     of the path. File patterns are matched against the filename only.
     """
     rel = path.relative_to(PROJECT_ROOT)
-    parts = rel.parts          # e.g. ('src', 'sample_library_manager', 'server.py')
+    parts = rel.parts          # e.g. ('src', 'digr', 'server.py')
     dir_parts = parts[:-1]    # directory components only
     filename = parts[-1]
 
@@ -78,7 +78,7 @@ def build_mcpb() -> Path:
     DIST_DIR.mkdir(exist_ok=True)
 
     version = get_version()
-    output_path = DIST_DIR / f"sample-library-manager-{version}.mcpb"
+    output_path = DIST_DIR / f"digr-{version}.mcpb"
 
     patterns = load_ignore_patterns()
 

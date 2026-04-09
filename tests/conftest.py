@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from sample_library_manager.config import Config
-from sample_library_manager.tools._shared import set_libraries
+from digr.config import Config
+from digr.tools._shared import set_libraries
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def mock_libraries(sample_dir, second_library):
 @pytest.fixture(autouse=True)
 def reset_search_cache():
     """Clear search cache before each test."""
-    from sample_library_manager.tools._shared import set_last_search_results
+    from digr.tools._shared import set_last_search_results
 
     set_last_search_results([])
     yield
@@ -73,7 +73,7 @@ def reset_search_cache():
 @pytest.fixture(autouse=True)
 def reset_license():
     """Reset license state before each test to ensure isolation."""
-    from sample_library_manager.tools._shared import set_license_key
+    from digr.tools._shared import set_license_key
 
     set_license_key(None)
     yield

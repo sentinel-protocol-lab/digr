@@ -9,7 +9,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-GITHUB_REPO = "sentinel-protocol-lab/sample-library-manager"
+GITHUB_REPO = "sentinel-protocol-lab/digr"
 GITHUB_ZIP_URL = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -141,7 +141,7 @@ def run_update(install_dir: Path) -> None:
                 except OSError:
                     print("  Could not fully remove .venv — please delete it manually.")
 
-            print(f"\nUpdate complete! Restart Sample Library Manager to use the new version.")
+            print(f"\nUpdate complete! Restart Digr to use the new version.")
 
     except urllib.error.URLError as e:
         print(f"ERROR: Could not download update — {e}")

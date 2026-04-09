@@ -39,7 +39,7 @@ def load_config(
         config.libraries.update(file_libs)
 
     # 3. Merge env vars
-    env_libs = os.environ.get("SLM_LIBRARIES")
+    env_libs = os.environ.get("DIGR_LIBRARIES")
     if env_libs:
         try:
             parsed = json.loads(env_libs)
@@ -50,10 +50,10 @@ def load_config(
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Also support individual env vars: SLM_LIBRARY_1, SLM_LIBRARY_1_NAME
+    # Also support individual env vars: DIGR_LIBRARY_1, DIGR_LIBRARY_1_NAME
     for i in range(1, 21):
-        path_env = os.environ.get(f"SLM_LIBRARY_{i}")
-        name_env = os.environ.get(f"SLM_LIBRARY_{i}_NAME", f"Library {i}")
+        path_env = os.environ.get(f"DIGR_LIBRARY_{i}")
+        name_env = os.environ.get(f"DIGR_LIBRARY_{i}_NAME", f"Library {i}")
         if path_env:
             config.libraries[name_env] = Path(path_env)
 
@@ -69,7 +69,7 @@ def load_config(
                 config.libraries[p.name] = p
 
     # 5. Load license key (env var > file)
-    license_key = os.environ.get("SLM_LICENSE_KEY")
+    license_key = os.environ.get("DIGR_LICENSE_KEY")
     if not license_key:
         license_file = default_config_dir() / "license.key"
         if license_file.exists():

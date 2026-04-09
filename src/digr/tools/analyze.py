@@ -19,8 +19,8 @@ def _require_audio():
     except ImportError:
         raise RuntimeError(
             "Audio analysis requires the 'audio' extras.\n"
-            "Install with: pip install sample-library-manager[audio]\n"
-            "Hint: If using uvx, run: uvx --with 'sample-library-manager[audio]' sample-library-manager"
+            "Install with: pip install digr[audio]\n"
+            "Hint: If using uvx, run: uvx --with 'digr[audio]' digr"
         )
 
 

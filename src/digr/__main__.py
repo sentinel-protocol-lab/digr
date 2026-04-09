@@ -1,4 +1,4 @@
-"""CLI entry point for Sample Library Manager."""
+"""CLI entry point for Digr."""
 
 import argparse
 import sys
@@ -7,24 +7,24 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sample Library Manager - MCP server for audio sample libraries",
+        description="Digr - MCP server for audio sample libraries",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
   # Run with stdio transport (default, for Claude Desktop / Claude Code)
-  sample-library-manager
+  digr
 
   # Run with Streamable HTTP transport (for Cursor, VS Code, remote access)
-  sample-library-manager --transport streamable-http --port 8000
+  digr --transport streamable-http --port 8000
 
   # Use a specific config file
-  sample-library-manager --config /path/to/config.yaml
+  digr --config /path/to/config.yaml
 
   # Add libraries via CLI
-  sample-library-manager --library "My Samples=/path/to/samples"
+  digr --library "My Samples=/path/to/samples"
 
   # Combine options
-  sample-library-manager --transport streamable-http --library "Drums=/mnt/drums"
+  digr --transport streamable-http --library "Drums=/mnt/drums"
 """,
     )
 

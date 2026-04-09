@@ -1,9 +1,9 @@
 @echo off
-:: Sample Library Manager - Batch Launcher
+:: Digr - Batch Launcher
 :: Double-click this file to install. No PowerShell policy changes needed.
 
 echo.
-echo   Sample Library Manager - Installer
+echo   Digr - Installer
 echo   =====================================
 echo.
 

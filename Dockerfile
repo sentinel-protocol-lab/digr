@@ -13,5 +13,5 @@ RUN pip install --no-cache-dir ".[audio]"
 
 # Default transport: streamable-http on 0.0.0.0:8000
 EXPOSE 8000
-ENTRYPOINT ["sample-library-manager"]
+ENTRYPOINT ["digr"]
 CMD ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]

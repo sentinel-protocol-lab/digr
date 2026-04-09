@@ -24,7 +24,7 @@ ENFORCE_LICENSE_GATE = False
 # --- License key state ---
 _license_key: str | None = None
 _license_valid: bool = False
-_VALID_KEY_PREFIX = "SLM-PRO-"
+_VALID_KEY_PREFIX = "DIGR-PRO-"
 
 
 def set_libraries(libraries: dict[str, Path]) -> None:
@@ -123,13 +123,13 @@ def is_pro_licensed() -> bool:
 def _validate_key(key: str) -> bool:
     """Validate a license key format.
 
-    Format: SLM-PRO-<segment>-<payload> (minimum 4 dash-separated parts).
+    Format: DIGR-PRO-<segment>-<payload> (minimum 4 dash-separated parts).
     In production, replace this with cryptographic signature verification.
     """
     if not key or not key.startswith(_VALID_KEY_PREFIX):
         return False
     parts = key.split("-")
-    # Minimum structure: SLM-PRO-SEGMENT-PAYLOAD
+    # Minimum structure: DIGR-PRO-SEGMENT-PAYLOAD
     return len(parts) >= 4
 
 
@@ -150,8 +150,8 @@ def require_pro(tool_name: str) -> str | None:
         f"'{tool_name}' is a Pro feature.\n"
         f"Get a license key at https://samplelibrary.pro\n\n"
         f"Set your key via:\n"
-        f"  - File: ~/.config/sample-library-manager/license.key\n"
-        f"  - Environment: SLM_LICENSE_KEY=your-key-here\n\n"
+        f"  - File: ~/.config/digr/license.key\n"
+        f"  - Environment: DIGR_LICENSE_KEY=your-key-here\n\n"
         f"Free tools available: search_samples, list_libraries, list_folders, "
         f"count_samples_in_folder, list_all_samples_in_folder, collect_samples, "
         f"copy_samples, collect_search_results"

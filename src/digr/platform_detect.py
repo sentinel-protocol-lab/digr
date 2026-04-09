@@ -138,7 +138,7 @@ def default_config_dir() -> Path:
         base = Path.home() / ".config"
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / "sample-library-manager"
+    return base / "digr"
 
 
 def default_config_path() -> Path:

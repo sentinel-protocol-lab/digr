@@ -3,13 +3,13 @@
 import pytest
 from pathlib import Path
 
-from sample_library_manager.tools.organize import (
+from digr.tools.organize import (
     collect_samples,
     collect_search_results,
     copy_samples,
     sort_samples,
 )
-from sample_library_manager.tools.search import search_samples
+from digr.tools.search import search_samples
 
 
 @pytest.mark.asyncio
@@ -75,8 +75,8 @@ async def test_collect_search_results_preview(mock_libraries, tmp_path):
 
 @pytest.mark.asyncio
 async def test_sort_samples_preview(mock_libraries, tmp_path):
-    from sample_library_manager.tools._shared import set_license_key
-    set_license_key("SLM-PRO-test1234-test")
+    from digr.tools._shared import set_license_key
+    set_license_key("DIGR-PRO-test1234-test")
     dest = str(tmp_path / "sorted")
     result = await sort_samples("wav", dest, max_results=20, confirm=False)
     # Should categorize some files
@@ -85,8 +85,8 @@ async def test_sort_samples_preview(mock_libraries, tmp_path):
 
 @pytest.mark.asyncio
 async def test_sort_samples_execute(mock_libraries, tmp_path):
-    from sample_library_manager.tools._shared import set_license_key
-    set_license_key("SLM-PRO-test1234-test")
+    from digr.tools._shared import set_license_key
+    set_license_key("DIGR-PRO-test1234-test")
     dest = str(tmp_path / "sorted")
     result = await sort_samples(
         "kick", dest, categories="Kicks,Other", max_results=10, confirm=True

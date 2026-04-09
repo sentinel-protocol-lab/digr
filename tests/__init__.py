@@ -1,1 +1,1 @@
-"""Sample Library Manager test suite."""
+"""Digr test suite."""

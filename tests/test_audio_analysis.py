@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from sample_library_manager.tools._audio_analysis import (
+from digr.tools._audio_analysis import (
     compute_chroma,
     detect_tempo,
     get_duration,

@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.4",
-  "name": "sample-library-manager",
-  "display_name": "Sample Library Manager",
+  "name": "digr",
+  "display_name": "Digr",
   "version": "1.0.1",
   "description": "Search your sample library by describing what you want. BPM/key detection, MIDI reading, and AI-powered organisation across multiple libraries.",
   "author": {
@@ -10,10 +10,10 @@
   "license": "BUSL-1.1",
   "server": {
     "type": "uv",
-    "entry_point": "src/sample_library_manager/__main__.py",
+    "entry_point": "src/digr/__main__.py",
     "mcp_config": {
       "command": "uv",
-      "args": ["run", "--extra", "audio", "sample-library-manager"]
+      "args": ["run", "--extra", "audio", "digr"]
     }
   },
   "tools": [

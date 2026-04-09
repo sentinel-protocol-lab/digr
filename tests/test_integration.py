@@ -2,19 +2,19 @@
 
 import pytest
 
-from sample_library_manager.config import Config
-from sample_library_manager.server import create_server
-import sample_library_manager.tools._shared as shared
-from sample_library_manager.tools._shared import (
+from digr.config import Config
+from digr.server import create_server
+import digr.tools._shared as shared
+from digr.tools._shared import (
     get_last_search_results,
     set_license_key,
 )
-from sample_library_manager.tools.organize import (
+from digr.tools.organize import (
     collect_samples,
     collect_search_results,
     sort_samples,
 )
-from sample_library_manager.tools.search import search_samples
+from digr.tools.search import search_samples
 
 
 class TestServerCreation:
@@ -23,7 +23,7 @@ class TestServerCreation:
     def test_create_server_empty_config(self):
         mcp = create_server(Config())
         assert mcp is not None
-        assert mcp.name == "sample-library-manager"
+        assert mcp.name == "digr"
 
     def test_create_server_with_libraries(self, sample_dir):
         config = Config(libraries={"Test": sample_dir})
@@ -31,7 +31,7 @@ class TestServerCreation:
         assert mcp is not None
 
     def test_create_server_with_license_key(self):
-        config = Config(license_key="SLM-PRO-test1234-demo")
+        config = Config(license_key="DIGR-PRO-test1234-demo")
         mcp = create_server(config)
         assert mcp is not None
 
@@ -111,7 +111,7 @@ class TestProGatingInWorkflow:
 
     @pytest.mark.asyncio
     async def test_sort_works_with_license(self, mock_libraries, tmp_path):
-        set_license_key("SLM-PRO-abcd1234-test")
+        set_license_key("DIGR-PRO-abcd1234-test")
         dest = str(tmp_path / "sorted")
         result = await sort_samples("wav", dest, confirm=False)
         assert "PREVIEW" in result

@@ -2,8 +2,8 @@
 
 import pytest
 
-from sample_library_manager.tools.search import search_samples
-from sample_library_manager.tools._shared import get_last_search_results
+from digr.tools.search import search_samples
+from digr.tools._shared import get_last_search_results
 
 
 @pytest.mark.asyncio

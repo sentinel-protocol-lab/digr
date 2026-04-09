@@ -1,5 +1,5 @@
 services:
-  sample-library-manager:
+  digr:
     build: .
     ports:
       - "8000:8000"
@@ -11,8 +11,8 @@ services:
       - ./config.yaml:/app/config.yaml:ro
     environment:
       # Option 1: Use a mounted config file
-      # sample-library-manager --config /app/config.yaml
+      # digr --config /app/config.yaml
       #
       # Option 2: Set libraries via environment
-      - SLM_LIBRARIES={"Samples": "/samples", "Packs": "/packs"}
+      - DIGR_LIBRARIES={"Samples": "/samples", "Packs": "/packs"}
     command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]

@@ -37,7 +37,7 @@ def create_server(config: Config | None = None) -> FastMCP:
     set_license_key(config.license_key)
 
     mcp = FastMCP(
-        "sample-library-manager",
+        "digr",
         instructions=(
             "MCP server for searching, analyzing, and organizing audio sample libraries.\n\n"
             "SETUP:\n"

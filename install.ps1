@@ -1,4 +1,4 @@
-# Sample Library Manager v1.0.0 - Windows Installer
+# Digr v1.0.0 - Windows Installer
 # Right-click this file -> "Run with PowerShell"
 # Or use install.bat to bypass execution policy.
 
@@ -17,7 +17,7 @@ function Write-Fail($msg) {
 }
 
 Write-Host ""
-Write-Host "  Sample Library Manager v1.0.0 - Installer" -ForegroundColor White
+Write-Host "  Digr v1.0.0 - Installer" -ForegroundColor White
 Write-Host "  =============================================" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -133,7 +133,7 @@ if (-not $mcpb) {
 }
 Write-OK "Found bundle: $($mcpb.Name)"
 
-$installDir = Join-Path $env:LOCALAPPDATA "SampleLibraryManager"
+$installDir = Join-Path $env:LOCALAPPDATA "Digr"
 Write-Step "Installing to: $installDir"
 
 if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
@@ -178,13 +178,13 @@ if (-not $config.PSObject.Properties["mcpServers"]) {
 
 $serverEntry = [PSCustomObject]@{
     command = $uvPath
-    args    = @("run", "--directory", $installDir, "--extra", "audio", "sample-library-manager")
+    args    = @("run", "--directory", $installDir, "--extra", "audio", "digr")
 }
 
-if ($config.mcpServers.PSObject.Properties["sample-library-manager"]) {
-    $config.mcpServers."sample-library-manager" = $serverEntry
+if ($config.mcpServers.PSObject.Properties["digr"]) {
+    $config.mcpServers."digr" = $serverEntry
 } else {
-    $config.mcpServers | Add-Member -MemberType NoteProperty -Name "sample-library-manager" -Value $serverEntry
+    $config.mcpServers | Add-Member -MemberType NoteProperty -Name "digr" -Value $serverEntry
 }
 
 $config | ConvertTo-Json -Depth 20 | Set-Content $configFile -Encoding UTF8
@@ -213,10 +213,10 @@ Write-Host ""
 Write-Host "  =============================================" -ForegroundColor DarkGray
 Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Sample Library Manager is now available in Claude Desktop." -ForegroundColor White
+Write-Host "  Digr is now available in Claude Desktop." -ForegroundColor White
 Write-Host "  The first launch downloads audio libraries (~1 min). After that it's instant." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  15 tools available (10 free, 5 Pro)" -ForegroundColor DarkGray
-Write-Host "  Pro features: set license key in %APPDATA%\sample-library-manager\license.key" -ForegroundColor DarkGray
+Write-Host "  Pro features: set license key in %APPDATA%\digr\license.key" -ForegroundColor DarkGray
 Write-Host ""
 Read-Host "Press Enter to close"

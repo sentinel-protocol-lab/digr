@@ -5,7 +5,7 @@ import os
 import pytest
 from pathlib import Path
 
-from sample_library_manager.config import Config, load_config
+from digr.config import Config, load_config
 
 
 def test_config_from_yaml_file(tmp_path):
@@ -31,15 +31,15 @@ def test_config_from_json_file(tmp_path):
 
 
 def test_config_env_var_override(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLM_LIBRARIES", '{"Env Lib": "/tmp/env-samples"}')
+    monkeypatch.setenv("DIGR_LIBRARIES", '{"Env Lib": "/tmp/env-samples"}')
     # Use a non-existent config file path to skip file loading
     config = load_config(config_path=str(tmp_path / "nonexistent.yaml"))
     assert "Env Lib" in config.libraries
 
 
 def test_config_individual_env_vars(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLM_LIBRARY_1", "/tmp/lib1")
-    monkeypatch.setenv("SLM_LIBRARY_1_NAME", "First Library")
+    monkeypatch.setenv("DIGR_LIBRARY_1", "/tmp/lib1")
+    monkeypatch.setenv("DIGR_LIBRARY_1_NAME", "First Library")
     config = load_config(config_path=str(tmp_path / "nonexistent.yaml"))
     assert "First Library" in config.libraries
     assert config.libraries["First Library"] == Path("/tmp/lib1")
@@ -56,7 +56,7 @@ def test_config_cli_override(tmp_path):
 
 def test_cli_overrides_env(tmp_path, monkeypatch):
     """CLI should win over env vars for the same library name."""
-    monkeypatch.setenv("SLM_LIBRARIES", '{"Shared": "/env/path"}')
+    monkeypatch.setenv("DIGR_LIBRARIES", '{"Shared": "/env/path"}')
     config = load_config(
         config_path=str(tmp_path / "nonexistent.yaml"),
         cli_libraries=["Shared=/cli/path"],

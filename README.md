@@ -1,11 +1,11 @@
-# Sample Library Manager
+# Digr
 
 **Search your samples by describing what you want.**
 
 "Find me some dark 170bpm drum breaks." "What key is this pad in?"
 "Sort my downloads into kicks, snares, hats, and everything else."
 
-Sample Library Manager connects your AI assistant to your audio files.
+Digr connects your AI assistant to your audio files.
 It searches across all your sample folders, detects BPM and key,
 and helps you organise thousands of files without manual browsing.
 
@@ -16,7 +16,7 @@ Free for personal use · [License (BSL 1.1)](LICENSE)
 
 ## Model Recommendations
 
-Sample Library Manager works with any MCP-compatible AI model, but results
+Digr works with any MCP-compatible AI model, but results
 vary with model capability:
 
 - **Claude Opus / Sonnet** — Recommended. Handles multi-step workflows
@@ -29,7 +29,7 @@ vary with model capability:
 
 ### Claude Desktop — MCPB (Recommended)
 
-Download `sample-library-manager-1.0.0.mcpb` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases), then:
+Download `digr-1.0.0.mcpb` from [Releases](https://github.com/sentinel-protocol-lab/digr/releases), then:
 
 1. Open Claude Desktop → **Settings** → **Extensions**
 2. Click **Install Extension** and select the `.mcpb` file
@@ -40,23 +40,23 @@ Download `sample-library-manager-1.0.0.mcpb` from [Releases](https://github.com/
 Claude Desktop installs extensions side-by-side — a new `.mcpb` does **not** overwrite the old one. To upgrade:
 
 1. Open Claude Desktop → **Settings** → **Extensions**
-2. Find "Sample Library Manager" → click **Remove**
+2. Find "Digr" → click **Remove**
 3. Delete the leftover data folder:
-   - **Mac**: `~/Library/Application Support/SampleLibraryManager/`
-   - **Windows**: `%APPDATA%\SampleLibraryManager\`
+   - **Mac**: `~/Library/Application Support/Digr/`
+   - **Windows**: `%APPDATA%\Digr\`
 4. Install the new `.mcpb` file as normal (step 2 above)
 
 This ensures all old code and cached data is fully replaced.
 
 ### Windows — One-Click Installer
 
-Download `install.bat` and `install.ps1` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases) into the same folder as the `.mcpb` file, then double-click `install.bat`.
+Download `install.bat` and `install.ps1` from [Releases](https://github.com/sentinel-protocol-lab/digr/releases) into the same folder as the `.mcpb` file, then double-click `install.bat`.
 
 Installs `uv`, registers the server in Claude Desktop, and restarts it automatically.
 
 ### Mac — One-Click Installer
 
-Download `install-mac.command` from [Releases](https://github.com/sentinel-protocol-lab/sample-library-manager/releases) into the same folder as the `.mcpb` file, then double-click it.
+Download `install-mac.command` from [Releases](https://github.com/sentinel-protocol-lab/digr/releases) into the same folder as the `.mcpb` file, then double-click it.
 
 > If macOS says it can't verify the file (web download only): right-click → **Open** → **Open**. This one-time step is not needed for USB installs.
 
@@ -66,14 +66,14 @@ Installs `uv`, registers the server in Claude Desktop, and restarts it automatic
 
 ```bash
 # Basic (search, browse, organize, MIDI reading)
-pip install sample-library-manager
+pip install digr
 
 # Full (adds BPM/key detection)
-pip install sample-library-manager[audio]
+pip install digr[audio]
 
 # Or run directly with uvx
-uvx sample-library-manager
-uvx --with 'sample-library-manager[audio]' sample-library-manager
+uvx digr
+uvx --with 'digr[audio]' digr
 ```
 
 ### Docker
@@ -81,8 +81,8 @@ uvx --with 'sample-library-manager[audio]' sample-library-manager
 ```bash
 docker run -p 8000:8000 \
   -v /path/to/samples:/samples:ro \
-  -e SLM_LIBRARIES='{"Samples": "/samples"}' \
-  sample-library-manager \
+  -e DIGR_LIBRARIES='{"Samples": "/samples"}' \
+  digr \
   --transport streamable-http --host 0.0.0.0
 ```
 
@@ -93,9 +93,9 @@ docker run -p 8000:8000 \
 ```json
 {
   "mcpServers": {
-    "sample-library-manager": {
+    "digr": {
       "command": "uvx",
-      "args": ["--with", "sample-library-manager[audio]", "sample-library-manager"]
+      "args": ["--with", "digr[audio]", "digr"]
     }
   }
 }
@@ -106,11 +106,11 @@ docker run -p 8000:8000 \
 ```json
 {
   "mcpServers": {
-    "sample-library-manager": {
+    "digr": {
       "command": "uvx",
       "args": [
-        "--with", "sample-library-manager[audio]",
-        "sample-library-manager",
+        "--with", "digr[audio]",
+        "digr",
         "--config", "/path/to/config.yaml"
       ]
     }
@@ -122,14 +122,14 @@ docker run -p 8000:8000 \
 
 Start the server:
 ```bash
-sample-library-manager --transport streamable-http --port 8000
+digr --transport streamable-http --port 8000
 ```
 
 Connect in your client:
 ```json
 {
   "mcpServers": {
-    "sample-library-manager": {
+    "digr": {
       "url": "http://127.0.0.1:8000/mcp"
     }
   }
@@ -143,23 +143,23 @@ Libraries are configured via a layered system (highest priority wins):
 ### 1. CLI Arguments
 
 ```bash
-sample-library-manager --library "My Samples=/path/to/samples" --library "Packs=/path/to/packs"
+digr --library "My Samples=/path/to/samples" --library "Packs=/path/to/packs"
 ```
 
 ### 2. Environment Variables
 
 ```bash
 # JSON object
-export SLM_LIBRARIES='{"My Samples": "/path/to/samples", "Packs": "/path/to/packs"}'
+export DIGR_LIBRARIES='{"My Samples": "/path/to/samples", "Packs": "/path/to/packs"}'
 
 # Or individual paths
-export SLM_LIBRARY_1="/path/to/samples"
-export SLM_LIBRARY_1_NAME="My Samples"
+export DIGR_LIBRARY_1="/path/to/samples"
+export DIGR_LIBRARY_1_NAME="My Samples"
 ```
 
 ### 3. Config File
 
-Default location: `~/.config/sample-library-manager/config.yaml`
+Default location: `~/.config/digr/config.yaml`
 
 ```yaml
 libraries:
@@ -196,14 +196,14 @@ If no config is provided, the server auto-detects common sample locations:
 | `sort_samples` | Sort into categorized subfolders | Pro |
 
 Pro tools require a license key. Set via either method:
-- **File**: `~/.config/sample-library-manager/license.key`
-- **Environment**: `SLM_LICENSE_KEY=your-key-here`
+- **File**: `~/.config/digr/license.key`
+- **Environment**: `DIGR_LICENSE_KEY=your-key-here`
 
 ## Development
 
 ```bash
-git clone https://github.com/sentinel-protocol-lab/sample-library-manager
-cd sample-library-manager
+git clone https://github.com/sentinel-protocol-lab/digr
+cd digr
 pip install -e ".[audio,dev]"
 pytest
 ```

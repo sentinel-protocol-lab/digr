@@ -2,7 +2,7 @@
 
 import pytest
 
-from sample_library_manager.tools.browse import (
+from digr.tools.browse import (
     count_samples_in_folder,
     list_all_samples_in_folder,
     list_folders,
@@ -20,7 +20,7 @@ async def test_list_libraries(mock_libraries):
 
 @pytest.mark.asyncio
 async def test_list_libraries_empty():
-    from sample_library_manager.tools._shared import set_libraries
+    from digr.tools._shared import set_libraries
 
     set_libraries({})
     result = await list_libraries()
