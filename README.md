@@ -1,6 +1,7 @@
 # Digr
+**AI-powered search, analysis, and organization for your sample library.**
 
-**Search your samples by describing what you want.**
+Search your samples by describing what you want.
 
 "Find me some dark 170bpm drum breaks." "What key is this pad in?"
 "Sort my downloads into kicks, snares, hats, and everything else."
