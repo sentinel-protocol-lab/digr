@@ -71,10 +71,30 @@ def reset_search_cache():
 
 
 @pytest.fixture(autouse=True)
-def reset_license():
-    """Reset license state before each test to ensure isolation."""
+def reset_license(monkeypatch):
+    """Reset license state before each test to ensure isolation.
+
+    Also blanks the product ID (env var AND baked-in constant) so no test can
+    accidentally reach the real Gumroad API; tests that need a product ID set
+    DIGR_GUMROAD_PRODUCT_ID explicitly, which takes priority.
+    """
+    import digr.licensing as licensing
     from digr.tools._shared import set_license_key
 
+    monkeypatch.delenv("DIGR_GUMROAD_PRODUCT_ID", raising=False)
+    monkeypatch.setattr(licensing, "GUMROAD_PRODUCT_ID", None)
     set_license_key(None)
+    yield
+    set_license_key(None)
+
+
+@pytest.fixture
+def pro_license(monkeypatch):
+    """Unlock Pro tools by stubbing license activation (no network, no token files)."""
+    import digr.licensing as licensing
+    from digr.tools._shared import set_license_key
+
+    monkeypatch.setattr(licensing, "activate_or_check", lambda key: (True, None))
+    set_license_key("TEST0000-TEST0000-TEST0000-TEST0000")
     yield
     set_license_key(None)

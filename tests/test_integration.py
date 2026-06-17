@@ -31,7 +31,8 @@ class TestServerCreation:
         assert mcp is not None
 
     def test_create_server_with_license_key(self):
-        config = Config(license_key="DIGR-PRO-test1234-demo")
+        # Verification is lazy, so server creation must not touch the network.
+        config = Config(license_key="A1B2C3D4-E5F60718-9ABCDEF0-1234ABCD")
         mcp = create_server(config)
         assert mcp is not None
 
@@ -110,8 +111,7 @@ class TestProGatingInWorkflow:
             shared.ENFORCE_LICENSE_GATE = original
 
     @pytest.mark.asyncio
-    async def test_sort_works_with_license(self, mock_libraries, tmp_path):
-        set_license_key("DIGR-PRO-abcd1234-test")
+    async def test_sort_works_with_license(self, mock_libraries, pro_license, tmp_path):
         dest = str(tmp_path / "sorted")
         result = await sort_samples("wav", dest, confirm=False)
         assert "PREVIEW" in result
