@@ -208,10 +208,14 @@ def _needs_recheck(payload: dict) -> bool:
 def activate_or_check(license_key: str | None) -> tuple[bool, str | None]:
     """Decide whether Pro is unlocked. Returns (licensed, reason_if_not).
 
-    Fail-closed: anything unexpected leaves Pro locked. The one deliberate
-    exception is a previously activated install that can't reach Gumroad at
-    re-check time — the saved token keeps working so a flaky connection never
-    locks a paying customer out.
+    First activation is fail-closed: a machine with no token must get a clean
+    "valid" from Gumroad, so a typo'd or fake key is refused.
+
+    Once a machine holds a valid token, the rule flips to fail-open: only an
+    explicit clawback (refund/chargeback/dispute) revokes it. A network failure
+    or a bare "key not found" — which is what a deleted product or a shut-down
+    seller looks like — keeps the proven-good customer unlocked. We refuse to
+    lock a paying customer out just because the product disappeared from sale.
     """
     if not license_key:
         return False, None
@@ -224,10 +228,17 @@ def activate_or_check(license_key: str | None) -> tuple[bool, str | None]:
         if result.status == "valid":
             write_activation_token(license_key)
             return True, None
-        if result.status in ("network_error", "not_configured"):
-            return True, None
-        delete_activation_token()
-        return False, result.message
+        if result.status == "refunded":
+            # The ONLY thing that revokes an already-proven licence: an
+            # explicit clawback (refund / chargeback / dispute). Drop the
+            # token so Pro stays off even if they later go offline.
+            delete_activation_token()
+            return False, result.message
+        # Any other answer keeps a proven-good customer unlocked: a network
+        # failure, OR a bare "key not found" — which is exactly what a deleted
+        # product or a shut-down seller looks like. We refuse to lock a paying
+        # customer out just because the product disappeared from sale.
+        return True, None
 
     result = verify_license(license_key, increment_uses=True)
     if result.status == "valid":

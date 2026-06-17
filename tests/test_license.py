@@ -234,6 +234,19 @@ class TestActivateOrCheck:
         monkeypatch.setattr(licensing, "_http_post_form", _post)
         assert activate_or_check(TEST_KEY) == (True, None)
 
+    def test_stale_token_unknown_key_keeps_working(self, configured_product, monkeypatch):
+        # A proven-good install must NOT be locked out just because the product
+        # was taken down or the seller vanished (Gumroad answers "not found").
+        # Contrast with test_failed_activation_no_token: the same 404 refuses a
+        # FIRST activation but keeps an already-activated customer unlocked.
+        write_activation_token(TEST_KEY)
+        monkeypatch.setattr(licensing, "_needs_recheck", lambda payload: True)
+        monkeypatch.setattr(
+            licensing, "_http_post_form", fake_post(404, {"success": False})
+        )
+        assert activate_or_check(TEST_KEY) == (True, None)
+        assert read_activation_token(TEST_KEY) is not None  # token kept, not deleted
+
 
 class TestRequireProGating:
     """require_pro messages and pass-through."""
