@@ -196,7 +196,10 @@ If no config is provided, the server auto-detects common sample locations:
 | `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) | Pro |
 | `sort_samples` | Sort into categorized subfolders | Pro |
 
-Pro tools require a license key. Set via either method:
+**Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
+**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr)**
+
+Once you have your key, set it via either method:
 - **File**: `~/.config/digr/license.key`
 - **Environment**: `DIGR_LICENSE_KEY=your-key-here`
 
