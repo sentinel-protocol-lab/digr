@@ -146,24 +146,53 @@ Write-OK "Bundle extracted."
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
 Write-Step "Locating Claude Desktop..."
 
-$configDir  = Join-Path $env:APPDATA "Claude"
-$configFile = Join-Path $configDir "claude_desktop_config.json"
+# Claude Desktop stores its config in one of two places, depending on how the
+# build was packaged:
+#   - Classic installer:  %APPDATA%\Claude
+#   - MSIX package (current website + Microsoft Store builds): Windows redirects
+#     the app's Roaming folder into a per-package sandbox at
+#     %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
+# Probe both (legacy first) and use whichever actually exists. This is OS-version
+# agnostic: the MSIX redirection works identically on Windows 10 and 11.
+$configDir = $null
 
-if (-not (Test-Path $configDir)) {
-    Write-Fail "Claude Desktop not found. Install it from https://claude.ai/download"
+$classicDir = Join-Path $env:APPDATA "Claude"
+if (Test-Path $classicDir) {
+    $configDir = $classicDir
+} else {
+    $packagesRoot = Join-Path $env:LOCALAPPDATA "Packages"
+    if (Test-Path $packagesRoot) {
+        $configDir = Get-ChildItem -Path $packagesRoot -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName "LocalCache\Roaming\Claude" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+    }
 }
-Write-OK "Found Claude Desktop config."
+
+if (-not $configDir) {
+    Write-Fail "Claude Desktop config folder not found. Install Claude Desktop from https://claude.ai/download, then OPEN it and sign in once (that first launch creates the folder), and re-run this installer."
+}
+
+$configFile = Join-Path $configDir "claude_desktop_config.json"
+Write-OK "Found Claude Desktop config: $configDir"
 
 # ── 5. Patch config JSON ──────────────────────────────────────────────────────
 Write-Step "Registering server..."
 
+# Write UTF-8 *without* a BOM. Windows PowerShell's `Set-Content -Encoding UTF8`
+# prepends a BOM, which can break strict JSON parsers reading the config.
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
 if (-not (Test-Path $configFile)) {
-    '{}' | Set-Content $configFile -Encoding UTF8
+    [System.IO.File]::WriteAllText($configFile, '{}', $utf8NoBom)
 }
 
 $raw = Get-Content $configFile -Raw -Encoding UTF8
 try {
-    $config = $raw | ConvertFrom-Json -Depth 20
+    # NB: ConvertFrom-Json has no -Depth in Windows PowerShell 5.1 (the
+    # powershell.exe that install.bat invokes on Windows 10). Its default depth
+    # is more than enough for this config, so don't pass -Depth here.
+    $config = $raw | ConvertFrom-Json
 } catch {
     Write-Fail "claude_desktop_config.json is malformed. Fix it manually: $configFile"
 }
@@ -187,7 +216,8 @@ if ($config.mcpServers.PSObject.Properties["digr"]) {
     $config.mcpServers | Add-Member -MemberType NoteProperty -Name "digr" -Value $serverEntry
 }
 
-$config | ConvertTo-Json -Depth 20 | Set-Content $configFile -Encoding UTF8
+$json = $config | ConvertTo-Json -Depth 20
+[System.IO.File]::WriteAllText($configFile, $json, $utf8NoBom)
 Write-OK "Config written."
 
 # ── 6. Restart Claude Desktop ─────────────────────────────────────────────────
@@ -200,12 +230,26 @@ if ($claude) {
     Write-OK "Claude Desktop stopped."
 }
 
+# Relaunch automatically. Classic builds have a fixed exe path; MSIX builds are
+# launched through the Apps folder via their package family name.
+$relaunched = $false
 $claudeExe = Join-Path $env:LOCALAPPDATA "AnthropicClaude\claude.exe"
 if (Test-Path $claudeExe) {
     Start-Process $claudeExe
+    $relaunched = $true
+} else {
+    try {
+        $pkg = Get-AppxPackage -Name "Claude" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($pkg) {
+            Start-Process "shell:AppsFolder\$($pkg.PackageFamilyName)!Claude"
+            $relaunched = $true
+        }
+    } catch {}
+}
+if ($relaunched) {
     Write-OK "Claude Desktop restarted."
 } else {
-    Write-Warn "Could not find Claude.exe - please open Claude Desktop manually."
+    Write-Warn "Please open Claude Desktop manually to load Digr."
 }
 
 # ── Done ──────────────────────────────────────────────────────────────────────
