@@ -143,6 +143,29 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory($mcpb.FullName, $installDir)
 Write-OK "Bundle extracted."
 
+# ── 3b. Pre-build the dependency environment ───────────────────────────────────
+Write-Step "Building Digr's environment (downloads dependencies, ~30s)..."
+
+# Build the .venv now, while Claude Desktop is closed and nothing else is using
+# this folder. If we skip this, `uv run` builds the venv lazily on Claude's first
+# launch -- and Claude's startup retry can fire a SECOND `uv run` against the
+# half-built venv. The two collide installing pywin32 ("being used by another
+# process", os error 32). Building once, here, removes that race and makes the
+# first launch instant. (Mirrors the runtime command in step 5: same --directory
+# and --extra, so the venv we build is the exact one `uv run` will reuse.)
+try {
+    & $uvPath sync --directory $installDir --extra audio 2>&1 |
+        ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Pre-build reported an error; Claude will try again on first launch."
+        Write-Warn "If the first launch fails too, add '$installDir' to your antivirus exclusions and re-run."
+    } else {
+        Write-OK "Environment ready."
+    }
+} catch {
+    Write-Warn "Could not pre-build the environment ($_); Claude will build it on first launch."
+}
+
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
 Write-Step "Locating Claude Desktop..."
 
@@ -258,7 +281,7 @@ Write-Host "  =============================================" -ForegroundColor Da
 Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Digr is now available in Claude Desktop." -ForegroundColor White
-Write-Host "  The first launch downloads audio libraries (~1 min). After that it's instant." -ForegroundColor DarkGray
+Write-Host "  The environment was built during install, so Digr is ready right away." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  15 tools available (10 free, 5 Pro)" -ForegroundColor DarkGray
 Write-Host "  Pro features: set license key in %APPDATA%\digr\license.key" -ForegroundColor DarkGray
