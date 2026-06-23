@@ -61,53 +61,52 @@ $minNum = $minParts[0] * 100 + $minParts[1]
 $maxNum = $maxParts[0] * 100 + $maxParts[1]
 
 $pyVersion = $null
-try {
-    $pyOutput = & $uvPath python --version 2>&1
-    if ($pyOutput -match "Python (\d+\.\d+)") {
-        $pyVersion = $Matches[1]
-    }
-} catch {}
 
-if (-not $pyVersion) {
-    # uv can manage Python itself - try to install a compatible version
-    Write-Warn "No Python found. Asking uv to install Python $MIN_PYTHON..."
+# (1) Prefer a Python that already exists on this machine. uv automatically
+# discovers and reuses system Pythons for `uv sync`/`uv run`, so when one is
+# present we skip uv's managed download entirely. Probe the usual launchers.
+foreach ($cmd in @("py", "python3", "python")) {
     try {
-        $installOutput = & $uvPath python install $MIN_PYTHON 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "uv python install output: $installOutput"
-        }
-        $pyOutput = & $uvPath python --version 2>&1
-        if ($pyOutput -match "Python (\d+\.\d+)") {
-            $pyVersion = $Matches[1]
-        }
-    } catch {
-        Write-Warn "uv python install failed: $_"
-    }
-}
-
-# Fallback: check system Python via py launcher or PATH
-if (-not $pyVersion) {
-    Write-Warn "Trying system Python..."
-    foreach ($cmd in @("py", "python3", "python")) {
-        try {
-            $testExe = (Get-Command $cmd -ErrorAction SilentlyContinue).Source
-            if ($testExe) {
-                $testOutput = & $testExe --version 2>&1
-                if ($testOutput -match "Python (\d+)\.(\d+)") {
-                    $maj = [int]$Matches[1]; $min = [int]$Matches[2]
-                    if (($maj * 100 + $min) -ge ($minParts[0] * 100 + $minParts[1])) {
-                        $pyVersion = "$maj.$min"
-                        Write-OK "Found system Python: $testExe ($testOutput)"
-                        break
-                    }
+        $testExe = (Get-Command $cmd -ErrorAction SilentlyContinue).Source
+        if ($testExe) {
+            $testOutput = & $testExe --version 2>&1
+            if ($testOutput -match "Python (\d+)\.(\d+)") {
+                $maj = [int]$Matches[1]; $min = [int]$Matches[2]
+                if (($maj * 100 + $min) -ge $minNum) {
+                    $pyVersion = "$maj.$min"
+                    Write-OK "Found Python: $testExe ($testOutput)"
+                    break
                 }
             }
-        } catch {}
+        }
+    } catch {}
+}
+
+# (2) No usable system Python -> have uv download a managed one. uv writes its
+# progress ("Downloading cpython... (24.5MiB)") to stderr; under the script-wide
+# $ErrorActionPreference='Stop' that first line was promoted to a terminating
+# error and misreported as "uv python install failed" -- the download wasn't
+# actually failing. Drop to 'Continue' so stderr is just text, judge success by
+# the real exit code, and retry once for a genuinely interrupted download.
+if (-not $pyVersion) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    for ($attempt = 1; ($attempt -le 2) -and (-not $pyVersion); $attempt++) {
+        Write-Warn "No system Python found. Downloading Python $MIN_PYTHON (attempt $attempt of 2)..."
+        & $uvPath python install $MIN_PYTHON 2>&1 |
+            ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
+        if ($LASTEXITCODE -eq 0) {
+            $pyVersion = $MIN_PYTHON
+            Write-OK "Downloaded Python $MIN_PYTHON"
+        } elseif ($attempt -lt 2) {
+            Write-Warn "Download did not complete; retrying..."
+        }
     }
+    $ErrorActionPreference = $prevEAP
 }
 
 if (-not $pyVersion) {
-    Write-Fail "Could not find or install Python >= $MIN_PYTHON. Install Python from https://python.org"
+    Write-Fail "Could not find or download Python >= $MIN_PYTHON. Install Python from https://python.org (tick 'Add python.exe to PATH' during setup), or run 'winget install Python.Python.3.13', then re-run this installer."
 }
 
 # Compare version numbers
