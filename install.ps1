@@ -144,26 +144,33 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 Write-OK "Bundle extracted."
 
 # ── 3b. Pre-build the dependency environment ───────────────────────────────────
-Write-Step "Building Digr's environment (downloads dependencies, ~30s)..."
+Write-Step "Building Digr's environment (downloads ~60 MB, 1-2 min)..."
 
 # Build the .venv now, while Claude Desktop is closed and nothing else is using
-# this folder. If we skip this, `uv run` builds the venv lazily on Claude's first
-# launch -- and Claude's startup retry can fire a SECOND `uv run` against the
-# half-built venv. The two collide installing pywin32 ("being used by another
-# process", os error 32). Building once, here, removes that race and makes the
+# this folder. If we skip this, `uv run` builds it lazily on Claude's first
+# launch -- but the download (scipy alone is ~35 MB) overruns Claude's startup
+# timeout, so Claude disconnects mid-build and a second `uv run` then collides
+# with the first installing pywin32 ("being used by another process", os error
+# 32). Building once, here, dodges both the timeout and the race, and makes the
 # first launch instant. (Mirrors the runtime command in step 5: same --directory
-# and --extra, so the venv we build is the exact one `uv run` will reuse.)
-try {
-    & $uvPath sync --directory $installDir --extra audio 2>&1 |
-        ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "Pre-build reported an error; Claude will try again on first launch."
-        Write-Warn "If the first launch fails too, add '$installDir' to your antivirus exclusions and re-run."
-    } else {
-        Write-OK "Environment ready."
-    }
-} catch {
-    Write-Warn "Could not pre-build the environment ($_); Claude will build it on first launch."
+# and --extra, so this is the exact venv `uv run` will reuse.)
+#
+# uv writes all its progress ("Using CPython...", "Downloading...") to stderr.
+# Under the script-wide $ErrorActionPreference='Stop', merging that with 2>&1
+# turns uv's first benign status line into a terminating error -- so drop to
+# 'Continue' for just this call and judge success by the real exit code.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $uvPath sync --directory $installDir --extra audio 2>&1 |
+    ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+
+if ($buildExit -eq 0) {
+    Write-OK "Environment ready."
+} else {
+    Write-Warn "Pre-build did not finish (exit $buildExit); Claude will build it on first launch."
+    Write-Warn "If the first launch also fails, add '$installDir' to your antivirus exclusions and re-run."
 }
 
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
