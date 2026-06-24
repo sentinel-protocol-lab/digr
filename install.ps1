@@ -135,7 +135,36 @@ Write-OK "Found bundle: $($mcpb.Name)"
 $installDir = Join-Path $env:LOCALAPPDATA "Digr"
 Write-Step "Installing to: $installDir"
 
-if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
+# Wipe any previous install so we lay down a clean copy. On Windows a loaded
+# .pyd/DLL can't be deleted while a process holds it open -- so if an older Digr
+# is already installed, Claude Desktop (running in the tray) keeps its compiled
+# dependencies locked and Remove-Item dies with "Access to the path is denied".
+# (macOS/Linux don't hit this -- unlinking an open file is allowed there.) So:
+# stop Claude first (we relaunch it at the end anyway), then remove with a short
+# retry for any straggling uv/python child process, and on a surviving lock give
+# an actionable message instead of dying on the raw PowerShell error.
+if (Test-Path $installDir) {
+    if (Get-Process -Name "Claude" -ErrorAction SilentlyContinue) {
+        Write-Warn "Closing Claude Desktop to free the previous install..."
+        Stop-Process -Name "Claude" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+
+    $removed = $false
+    foreach ($attempt in 1..3) {
+        try {
+            Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+            $removed = $true
+            break
+        } catch {
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    if (-not $removed) {
+        Write-Fail "Could not replace the existing install at '$installDir' -- a file is still in use. Fully quit Claude Desktop (right-click its icon in the system tray near the clock, then Quit), close anything else using Digr, and run this installer again. If it still fails, restart Windows and re-run."
+    }
+}
 New-Item -ItemType Directory -Path $installDir | Out-Null
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
