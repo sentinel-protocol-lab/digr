@@ -1,6 +1,9 @@
 # Virtual environments and caches
 .venv/
 venv/
+test_env*/
+# General guard: never bundle a venv's dependency dump, whatever the venv is named
+site-packages/
 __pycache__/
 *.pyc
 *.pyo
