@@ -12,6 +12,7 @@ import urllib.error
 import pytest
 
 import digr.licensing as licensing
+import digr.platform_detect as platform_detect
 import digr.tools._shared as shared
 from digr.licensing import (
     activate_or_check,
@@ -20,6 +21,7 @@ from digr.licensing import (
     write_activation_token,
 )
 from digr.tools._shared import is_pro_licensed, require_pro, set_license_key
+from digr.tools.license import activate_license
 
 TEST_KEY = "A1B2C3D4-E5F60718-9ABCDEF0-1234ABCD"
 
@@ -274,6 +276,12 @@ class TestRequireProGating:
         assert "license.key" in result
         assert "DIGR_LICENSE_KEY" in result
 
+    def test_message_offers_paste_activation(self):
+        # The gate should nudge the frictionless path: paste the key, no restart.
+        set_license_key(None)
+        result = require_pro("analyze_sample")
+        assert "paste" in result.lower()
+
     def test_message_contains_purchase_url(self):
         set_license_key(None)
         assert "sentinelprotocol.co.uk/digr" in require_pro("read_midi")
@@ -332,3 +340,99 @@ class TestEnforceLicenseGateOff:
         for tool in ["analyze_sample", "read_midi", "search_samples_by_bpm",
                      "sort_samples", "rename_with_metadata"]:
             assert require_pro(tool) is None
+
+
+@pytest.fixture
+def isolated_config_dir(tmp_path, monkeypatch):
+    """Point the saved-key location (default_config_dir) at the test tmp dir.
+
+    The activation token is already isolated by the autouse isolated_token_path
+    fixture; this covers the license.key file the activate_license tool writes.
+    """
+    monkeypatch.setattr(platform_detect, "default_config_dir", lambda: tmp_path)
+    return tmp_path
+
+
+class TestActivateLicenseTool:
+    """The activate_license tool: paste a key -> Pro unlocked + key saved, no restart."""
+
+    def setup_method(self):
+        self._original = shared.ENFORCE_LICENSE_GATE
+        shared.ENFORCE_LICENSE_GATE = True
+
+    def teardown_method(self):
+        shared.ENFORCE_LICENSE_GATE = self._original
+
+    async def test_valid_key_unlocks_in_session_and_saves(
+        self, configured_product, isolated_config_dir, monkeypatch
+    ):
+        monkeypatch.setattr(licensing, "_http_post_form", fake_post(200, gumroad_response()))
+        result = await activate_license(TEST_KEY)
+
+        assert "activated" in result.lower()
+        # Pro is live this session with no restart...
+        assert require_pro("analyze_sample") is None
+        assert is_pro_licensed()
+        # ...and the key was saved for next time, exact bytes, no BOM.
+        key_file = isolated_config_dir / "license.key"
+        assert key_file.read_bytes() == TEST_KEY.encode("utf-8")
+
+    async def test_pasted_whitespace_is_trimmed_before_saving(
+        self, configured_product, isolated_config_dir, monkeypatch
+    ):
+        monkeypatch.setattr(licensing, "_http_post_form", fake_post(200, gumroad_response()))
+        await activate_license(f"  {TEST_KEY}\n")
+        assert (isolated_config_dir / "license.key").read_text(encoding="utf-8") == TEST_KEY
+
+    async def test_typo_key_reports_and_does_not_save(
+        self, configured_product, isolated_config_dir, monkeypatch
+    ):
+        monkeypatch.setattr(licensing, "_http_post_form", fake_post(404, {"success": False}))
+        result = await activate_license("WRONG-KEY")
+
+        assert "couldn't activate" in result.lower()
+        assert "recognised" in result.lower()
+        assert not (isolated_config_dir / "license.key").exists()
+        assert require_pro("analyze_sample") is not None  # still locked
+
+    async def test_offline_refuses_and_saves_nothing(
+        self, configured_product, isolated_config_dir, monkeypatch
+    ):
+        # Option A: no internet on first activation -> tell them to reconnect,
+        # and DON'T leave a key file behind.
+        def _post(url, fields):
+            raise urllib.error.URLError("offline")
+
+        monkeypatch.setattr(licensing, "_http_post_form", _post)
+        result = await activate_license(TEST_KEY)
+
+        assert "couldn't activate" in result.lower()
+        assert "internet" in result.lower()
+        assert not (isolated_config_dir / "license.key").exists()
+
+    async def test_empty_key_prompts_without_touching_network(
+        self, isolated_config_dir, monkeypatch
+    ):
+        post = fake_post(200, gumroad_response())
+        monkeypatch.setattr(licensing, "_http_post_form", post)
+        result = await activate_license("   ")
+
+        assert "no license key" in result.lower()
+        assert post.calls == []
+        assert not (isolated_config_dir / "license.key").exists()
+
+    async def test_already_activated_machine_resaves_key_without_network(
+        self, isolated_config_dir, monkeypatch
+    ):
+        # A machine that already holds a valid token (e.g. activated earlier via
+        # env var) can re-paste to persist the key file, with no network call.
+        write_activation_token(TEST_KEY)
+
+        def _post(url, fields):
+            raise AssertionError("network must not be touched with a fresh token")
+
+        monkeypatch.setattr(licensing, "_http_post_form", _post)
+        result = await activate_license(TEST_KEY)
+
+        assert "activated" in result.lower()
+        assert (isolated_config_dir / "license.key").read_text(encoding="utf-8") == TEST_KEY

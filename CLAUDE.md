@@ -46,6 +46,7 @@ The server also accepts pipe-delimited, newline-delimited, and single path strin
 - `collect_samples` — copy/move by keyword (with preview)
 - `copy_samples` — copy/move specific files by path (with preview)
 - `collect_search_results` — copy/move from last search by result number (with preview)
+- `activate_license` — save a pasted Pro key and unlock Pro in-session (no restart)
 
 ### Pro Tools (require license key)
 - `analyze_sample` — BPM and key detection (requires `[audio]` extras)
@@ -99,6 +100,9 @@ digr --transport streamable-http        # HTTP on port 8000
 
 ## License Key Setup
 
-Pro features require a license key. Set via either method:
-- **File**: `~/.config/digr/license.key` (just the key string, no whitespace)
-- **Environment**: `DIGR_LICENSE_KEY=your-key-here`
+Pro features require a license key. Three ways to set it:
+- **`activate_license` tool (easiest)**: the user pastes their key in chat; the tool writes `license.key` for them and unlocks Pro in the same session (no restart). This is the frictionless path the gate message points customers to.
+- **File**: `~/.config/digr/license.key` (just the key string, no whitespace; read with `utf-8-sig` so a Notepad BOM is tolerated)
+- **Environment**: `DIGR_LICENSE_KEY=your-key-here` (takes priority over the file)
+
+The key is read at startup (file/env) OR set live by `activate_license`. Activation verifies against Gumroad once, then writes a signed offline token (`license.token`) so later runs work offline; it re-checks every 14 days (`RECHECK_DAYS`).

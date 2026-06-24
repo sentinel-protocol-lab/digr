@@ -130,6 +130,20 @@ def _license_check() -> tuple[bool, str | None]:
     return _license_status
 
 
+def activate_license_key(key: str) -> tuple[bool, str | None]:
+    """Verify a just-pasted key NOW and remember the result for the gate.
+
+    set_license_key (used at startup) is lazy — it waits for the first Pro tool
+    call to verify. This is the eager path used by the activate_license tool: it
+    loads the key, clears the memoized status, and runs the check immediately so
+    Pro is unlocked in the SAME session, with no Claude restart.
+
+    Returns (licensed, reason_if_not).
+    """
+    set_license_key(key)
+    return _license_check()
+
+
 def is_pro_licensed() -> bool:
     """Check if the current session has a valid Pro license."""
     return _license_check()[0]
@@ -156,7 +170,9 @@ def require_pro(tool_name: str) -> str | None:
     else:
         parts.append("Get a license key at https://sentinelprotocol.co.uk/digr")
     parts.append(
-        "Set your key via:\n"
+        "Already purchased? Just paste your license key here and I'll activate "
+        "it for you right away — Pro unlocks immediately, no restart needed.\n\n"
+        "Prefer to set it up by hand? Put the key in a file or an env var:\n"
         "  - File: ~/.config/digr/license.key\n"
         "  - Environment: DIGR_LICENSE_KEY=your-key-here"
     )

@@ -318,7 +318,8 @@ Write-Host ""
 Write-Host "  Digr is now available in Claude Desktop." -ForegroundColor White
 Write-Host "  The environment was built during install, so Digr is ready right away." -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  15 tools available (10 free, 5 Pro)" -ForegroundColor DarkGray
-Write-Host "  Pro features: set license key in %APPDATA%\digr\license.key" -ForegroundColor DarkGray
+Write-Host "  16 tools available (11 free, 5 Pro)" -ForegroundColor DarkGray
+Write-Host "  Pro features: paste your license key to Claude and ask it to" -ForegroundColor DarkGray
+Write-Host "  activate Digr Pro (or put the key in %APPDATA%\digr\license.key)" -ForegroundColor DarkGray
 Write-Host ""
 Read-Host "Press Enter to close"
