@@ -13,6 +13,7 @@ from .tools.browse import (
     list_libraries,
     remove_library,
 )
+from .tools.license import activate_license
 from .tools.organize import (
     collect_samples,
     collect_search_results,
@@ -54,6 +55,9 @@ def create_server(config: Config | None = None) -> FastMCP:
             "FILEPATHS: Pass as JSON array of strings for reliability.\n\n"
             "PRO TOOLS (require license key): analyze_sample, search_samples_by_bpm, "
             "read_midi, sort_samples, rename_with_metadata.\n\n"
+            "ACTIVATION: If the user has a Pro license key (or pastes one when a Pro "
+            "tool is blocked), call activate_license with that key. It saves the key "
+            "and unlocks Pro immediately — no restart needed.\n\n"
             "KEYWORDS: Use simple terms (e.g., 'kick', 'snare 909'). "
             "Multiple words are AND-matched against the full file path."
         ),
@@ -70,6 +74,9 @@ def create_server(config: Config | None = None) -> FastMCP:
     mcp.tool()(list_folders)
     mcp.tool()(count_samples_in_folder)
     mcp.tool()(list_all_samples_in_folder)
+
+    # --- License tools ---
+    mcp.tool()(activate_license)
 
     # --- Analyze tools ---
     mcp.tool()(analyze_sample)

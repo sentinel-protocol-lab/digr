@@ -74,7 +74,10 @@ def load_config(
         license_file = default_config_dir() / "license.key"
         if license_file.exists():
             try:
-                license_key = license_file.read_text(encoding="utf-8").strip()
+                # utf-8-sig strips a leading BOM if a Windows editor (e.g.
+                # Notepad) added one when the user saved their key; .strip()
+                # alone would leave the BOM and break verification.
+                license_key = license_file.read_text(encoding="utf-8-sig").strip()
             except (OSError, UnicodeDecodeError):
                 license_key = None
     config.license_key = license_key or None

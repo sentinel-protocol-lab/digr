@@ -3,6 +3,7 @@
 import pytest
 
 from digr.tools.browse import (
+    add_library,
     count_samples_in_folder,
     list_all_samples_in_folder,
     list_folders,
@@ -60,3 +61,38 @@ async def test_list_all_samples_respects_max(mock_libraries):
     result = await list_all_samples_in_folder("Drums", max_results=2)
     lines = [l for l in result.split("\n") if l.strip() and l.strip()[0].isdigit() and ". " in l]
     assert len(lines) <= 2
+
+
+@pytest.mark.asyncio
+async def test_list_folders_excludes_macosx(macos_junk_library):
+    result = await list_folders()
+    assert "Bass Loops" in result
+    assert "__MACOSX" not in result
+
+
+@pytest.mark.asyncio
+async def test_list_all_samples_excludes_macos_junk(macos_junk_library):
+    result = await list_all_samples_in_folder("Bass Loops", max_results=50)
+    assert "Bass Loop 01.wav" in result
+    assert "._Bass Loop 01.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_count_excludes_macos_junk(macos_junk_library):
+    # Bass Loops holds one real .wav and its ._ sidecar — only the real one counts.
+    result = await count_samples_in_folder("Bass Loops")
+    assert "WAV files: 1" in result
+
+
+@pytest.mark.asyncio
+async def test_add_library_count_excludes_macos_junk(tmp_path):
+    loops = tmp_path / "Bass Loops"
+    loops.mkdir(parents=True)
+    (loops / "Bass Loop 01.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    (loops / "._Bass Loop 01.wav").write_bytes(b"\x00\x05\x16\x07")
+    macosx = tmp_path / "__MACOSX"
+    macosx.mkdir()
+    (macosx / "._junk.wav").write_bytes(b"\x00\x05\x16\x07")
+
+    result = await add_library("Junk", str(tmp_path))
+    assert "Audio files found: 1" in result

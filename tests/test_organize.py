@@ -74,9 +74,7 @@ async def test_collect_search_results_preview(mock_libraries, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sort_samples_preview(mock_libraries, tmp_path):
-    from digr.tools._shared import set_license_key
-    set_license_key("DIGR-PRO-test1234-test")
+async def test_sort_samples_preview(mock_libraries, pro_license, tmp_path):
     dest = str(tmp_path / "sorted")
     result = await sort_samples("wav", dest, max_results=20, confirm=False)
     # Should categorize some files
@@ -84,9 +82,7 @@ async def test_sort_samples_preview(mock_libraries, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sort_samples_execute(mock_libraries, tmp_path):
-    from digr.tools._shared import set_license_key
-    set_license_key("DIGR-PRO-test1234-test")
+async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
     dest = str(tmp_path / "sorted")
     result = await sort_samples(
         "kick", dest, categories="Kicks,Other", max_results=10, confirm=True

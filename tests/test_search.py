@@ -57,3 +57,16 @@ async def test_search_matches_folder_names(mock_libraries):
     """Keywords should match against folder names, not just filenames."""
     result = await search_samples("Snares", max_results=10)
     assert "snare_tight.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_excludes_macos_junk(macos_junk_library):
+    """AppleDouble sidecars and __MACOSX contents must never surface as samples."""
+    result = await search_samples("bass loop", max_results=50)
+    # The real sample still comes through.
+    assert "Bass Loop 01.wav" in result
+    # The ._ AppleDouble sidecar is filtered out.
+    assert "._Bass Loop 01.wav" not in result
+    # Nothing inside __MACOSX surfaces — even a non-dotfile.
+    assert "__MACOSX" not in result
+    assert "Bass Loop 99.wav" not in result

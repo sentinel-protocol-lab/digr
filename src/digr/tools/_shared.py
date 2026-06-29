@@ -17,14 +17,14 @@ _last_search_results: list[tuple[str, str]] = []  # [(path, library_name), ...]
 _libraries: dict[str, Path] = {}
 
 # --- License gate configuration ---
-# Set to True when payment infrastructure is live and Gumroad license keys are available.
-# See GTM plan Step 7.
-ENFORCE_LICENSE_GATE = False
+# When True, Pro tools require a Gumroad-verified license (see digr/licensing.py).
+ENFORCE_LICENSE_GATE = True
 
 # --- License key state ---
 _license_key: str | None = None
-_license_valid: bool = False
-_VALID_KEY_PREFIX = "DIGR-PRO-"
+# Memoized (licensed, reason_if_not) from licensing.activate_or_check, so the
+# network is consulted at most once per server run.
+_license_status: tuple[bool, str | None] | None = None
 
 
 def set_libraries(libraries: dict[str, Path]) -> None:
@@ -109,28 +109,44 @@ def get_last_search_results() -> list[tuple[str, str]]:
 
 
 def set_license_key(key: str | None) -> None:
-    """Set and validate the license key. Called at server startup."""
-    global _license_key, _license_valid
-    _license_key = key
-    _license_valid = _validate_key(key) if key else False
+    """Store the license key from config. Called at server startup.
+
+    Verification happens lazily on the first Pro tool call (see
+    _license_check) so startup never waits on the network.
+    """
+    global _license_key, _license_status
+    cleaned = key.strip() if isinstance(key, str) else None
+    _license_key = cleaned or None
+    _license_status = None
+
+
+def _license_check() -> tuple[bool, str | None]:
+    """Activate or re-check the license, memoizing the result for this run."""
+    global _license_status
+    if _license_status is None:
+        from ..licensing import activate_or_check
+
+        _license_status = activate_or_check(_license_key)
+    return _license_status
+
+
+def activate_license_key(key: str) -> tuple[bool, str | None]:
+    """Verify a just-pasted key NOW and remember the result for the gate.
+
+    set_license_key (used at startup) is lazy — it waits for the first Pro tool
+    call to verify. This is the eager path used by the activate_license tool: it
+    loads the key, clears the memoized status, and runs the check immediately so
+    Pro is unlocked in the SAME session, with no Claude restart.
+
+    Returns (licensed, reason_if_not).
+    """
+    set_license_key(key)
+    return _license_check()
 
 
 def is_pro_licensed() -> bool:
     """Check if the current session has a valid Pro license."""
-    return _license_valid
-
-
-def _validate_key(key: str) -> bool:
-    """Validate a license key format.
-
-    Format: DIGR-PRO-<segment>-<payload> (minimum 4 dash-separated parts).
-    In production, replace this with cryptographic signature verification.
-    """
-    if not key or not key.startswith(_VALID_KEY_PREFIX):
-        return False
-    parts = key.split("-")
-    # Minimum structure: DIGR-PRO-SEGMENT-PAYLOAD
-    return len(parts) >= 4
+    return _license_check()[0]
 
 
 def require_pro(tool_name: str) -> str | None:
@@ -144,24 +160,48 @@ def require_pro(tool_name: str) -> str | None:
     """
     if not ENFORCE_LICENSE_GATE:
         return None
-    if _license_valid:
+    licensed, reason = _license_check()
+    if licensed:
         return None
-    return (
-        f"'{tool_name}' is a Pro feature.\n"
-        f"Get a license key at https://samplelibrary.pro\n\n"
-        f"Set your key via:\n"
-        f"  - File: ~/.config/digr/license.key\n"
-        f"  - Environment: DIGR_LICENSE_KEY=your-key-here\n\n"
-        f"Free tools available: search_samples, list_libraries, list_folders, "
-        f"count_samples_in_folder, list_all_samples_in_folder, collect_samples, "
-        f"copy_samples, collect_search_results"
+
+    parts = [f"'{tool_name}' is a Pro feature."]
+    if reason:
+        parts.append(reason)
+    else:
+        parts.append("Get a license key at https://sentinelprotocol.co.uk/digr")
+    parts.append(
+        "Already purchased? Just paste your license key here and I'll activate "
+        "it for you right away — Pro unlocks immediately, no restart needed.\n\n"
+        "Prefer to set it up by hand? Put the key in a file or an env var:\n"
+        "  - File: ~/.config/digr/license.key\n"
+        "  - Environment: DIGR_LICENSE_KEY=your-key-here"
     )
+    parts.append(
+        "Free tools available: search_samples, list_libraries, list_folders, "
+        "count_samples_in_folder, list_all_samples_in_folder, collect_samples, "
+        "copy_samples, collect_search_results"
+    )
+    return "\n\n".join(parts)
 
 
 def match_keywords(path_str: str, keywords: list[str]) -> bool:
     """Check if all keywords appear anywhere in the path (case-insensitive)."""
     path_lower = path_str.lower()
     return all(kw in path_lower for kw in keywords)
+
+
+def is_junk_path(file_path: Path) -> bool:
+    """True for macOS metadata litter that only looks like a sample.
+
+    When audio is zipped or copied on a Mac and unpacked on another
+    filesystem, two kinds of junk appear with audio-looking names:
+    AppleDouble sidecar files (``._Track.wav``) and the ``__MACOSX``
+    folder. They carry an audio extension but contain no audio, so they
+    must never be searched, counted, analysed, or organised as samples.
+    """
+    if file_path.name.startswith("._"):
+        return True
+    return "__MACOSX" in file_path.parts
 
 
 def search_all_libraries(
@@ -181,6 +221,8 @@ def search_all_libraries(
         for extension in ALL_EXTENSIONS:
             try:
                 for file_path in library.rglob(extension):
+                    if is_junk_path(file_path):
+                        continue
                     if match_keywords(str(file_path), keywords):
                         lib_results.append(str(file_path))
                         if len(lib_results) >= per_library_cap:

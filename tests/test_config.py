@@ -62,3 +62,41 @@ def test_cli_overrides_env(tmp_path, monkeypatch):
         cli_libraries=["Shared=/cli/path"],
     )
     assert config.libraries["Shared"] == Path("/cli/path")
+
+
+# --- License key file loading (Windows text-encoding edge cases) ---
+
+TEST_LICENSE_KEY = "A1B2C3D4-E5F60718-9ABCDEF0-1234ABCD"
+
+
+def test_license_key_file_loaded(tmp_path, monkeypatch):
+    """A plain license.key file is read and assigned to the config."""
+    monkeypatch.delenv("DIGR_LICENSE_KEY", raising=False)
+    monkeypatch.setattr("digr.config.default_config_dir", lambda: tmp_path)
+    (tmp_path / "license.key").write_text(TEST_LICENSE_KEY, encoding="utf-8")
+    config = load_config(config_path=str(tmp_path / "nonexistent.yaml"))
+    assert config.license_key == TEST_LICENSE_KEY
+
+
+def test_license_key_file_with_bom_is_stripped(tmp_path, monkeypatch):
+    """Windows Notepad saves UTF-8 with a leading BOM; it must not corrupt the key.
+
+    Writing with encoding="utf-8-sig" prepends the BOM, mimicking Notepad. The
+    loaded key must come back clean — a stray BOM would make Gumroad reject the
+    key and would break the offline-token fingerprint.
+    """
+    monkeypatch.delenv("DIGR_LICENSE_KEY", raising=False)
+    monkeypatch.setattr("digr.config.default_config_dir", lambda: tmp_path)
+    (tmp_path / "license.key").write_text(TEST_LICENSE_KEY, encoding="utf-8-sig")
+    config = load_config(config_path=str(tmp_path / "nonexistent.yaml"))
+    assert config.license_key == TEST_LICENSE_KEY
+    assert not config.license_key.startswith("﻿")
+
+
+def test_license_key_file_with_windows_line_ending(tmp_path, monkeypatch):
+    """A trailing CRLF (Windows newline) must be stripped from the key."""
+    monkeypatch.delenv("DIGR_LICENSE_KEY", raising=False)
+    monkeypatch.setattr("digr.config.default_config_dir", lambda: tmp_path)
+    (tmp_path / "license.key").write_bytes((TEST_LICENSE_KEY + "\r\n").encode("utf-8"))
+    config = load_config(config_path=str(tmp_path / "nonexistent.yaml"))
+    assert config.license_key == TEST_LICENSE_KEY

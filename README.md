@@ -190,13 +190,21 @@ If no config is provided, the server auto-detects common sample locations:
 | `collect_search_results` | Copy/move from last search results | Free |
 | `add_library` | Add a sample library path at runtime | Free |
 | `remove_library` | Remove a sample library by name | Free |
+| `activate_license` | Save a Pro license key and unlock Pro instantly (no restart) | Free |
 | `analyze_sample` | Detect BPM and musical key (requires `[audio]`) | Pro |
 | `search_samples_by_bpm` | Search and auto-detect BPM for each result | Pro |
 | `read_midi` | Read MIDI file notes in bar\|beat format | Pro |
 | `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) | Pro |
 | `sort_samples` | Sort into categorized subfolders | Pro |
 
-Pro tools require a license key. Set via either method:
+**Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
+**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr)**
+
+Once you have your key, the easiest way to activate is to **paste it to your AI
+assistant** and ask it to activate Digr Pro — the `activate_license` tool saves
+the key for you and unlocks Pro immediately, with no restart.
+
+Prefer to set it up by hand? Use either:
 - **File**: `~/.config/digr/license.key`
 - **Environment**: `DIGR_LICENSE_KEY=your-key-here`
 

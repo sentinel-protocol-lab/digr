@@ -50,6 +50,29 @@ def second_library(tmp_path_factory):
 
 
 @pytest.fixture
+def macos_junk_library(tmp_path_factory):
+    """A library with real samples alongside macOS metadata junk.
+
+    Mirrors a Mac-zipped sample pack unpacked on Windows: an AppleDouble
+    sidecar (._Name.wav) next to a real file, plus a __MACOSX folder whose
+    contents (dotfile or not) are all junk.
+    """
+    lib = tmp_path_factory.mktemp("junk_library")
+    loops = lib / "Bass Loops"
+    loops.mkdir(parents=True)
+    (loops / "Bass Loop 01.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    (loops / "._Bass Loop 01.wav").write_bytes(b"\x00\x05\x16\x07")  # AppleDouble
+
+    macosx = lib / "__MACOSX" / "Bass Loops"
+    macosx.mkdir(parents=True)
+    (macosx / "._Bass Loop 01.wav").write_bytes(b"\x00\x05\x16\x07")
+    (macosx / "Bass Loop 99.wav").write_bytes(b"\x00\x05\x16\x07")  # non-dotfile, still junk
+
+    set_libraries({"Junk Library": lib})
+    return lib
+
+
+@pytest.fixture
 def mock_libraries(sample_dir, second_library):
     """Set up mock libraries and return the config."""
     libraries = {
@@ -71,10 +94,30 @@ def reset_search_cache():
 
 
 @pytest.fixture(autouse=True)
-def reset_license():
-    """Reset license state before each test to ensure isolation."""
+def reset_license(monkeypatch):
+    """Reset license state before each test to ensure isolation.
+
+    Also blanks the product ID (env var AND baked-in constant) so no test can
+    accidentally reach the real Gumroad API; tests that need a product ID set
+    DIGR_GUMROAD_PRODUCT_ID explicitly, which takes priority.
+    """
+    import digr.licensing as licensing
     from digr.tools._shared import set_license_key
 
+    monkeypatch.delenv("DIGR_GUMROAD_PRODUCT_ID", raising=False)
+    monkeypatch.setattr(licensing, "GUMROAD_PRODUCT_ID", None)
     set_license_key(None)
+    yield
+    set_license_key(None)
+
+
+@pytest.fixture
+def pro_license(monkeypatch):
+    """Unlock Pro tools by stubbing license activation (no network, no token files)."""
+    import digr.licensing as licensing
+    from digr.tools._shared import set_license_key
+
+    monkeypatch.setattr(licensing, "activate_or_check", lambda key: (True, None))
+    set_license_key("TEST0000-TEST0000-TEST0000-TEST0000")
     yield
     set_license_key(None)
