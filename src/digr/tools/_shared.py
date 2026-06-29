@@ -190,6 +190,20 @@ def match_keywords(path_str: str, keywords: list[str]) -> bool:
     return all(kw in path_lower for kw in keywords)
 
 
+def is_junk_path(file_path: Path) -> bool:
+    """True for macOS metadata litter that only looks like a sample.
+
+    When audio is zipped or copied on a Mac and unpacked on another
+    filesystem, two kinds of junk appear with audio-looking names:
+    AppleDouble sidecar files (``._Track.wav``) and the ``__MACOSX``
+    folder. They carry an audio extension but contain no audio, so they
+    must never be searched, counted, analysed, or organised as samples.
+    """
+    if file_path.name.startswith("._"):
+        return True
+    return "__MACOSX" in file_path.parts
+
+
 def search_all_libraries(
     keyword: str, max_results: int, per_library_cap: int | None = None
 ) -> list[tuple[str, str]]:
@@ -207,6 +221,8 @@ def search_all_libraries(
         for extension in ALL_EXTENSIONS:
             try:
                 for file_path in library.rglob(extension):
+                    if is_junk_path(file_path):
+                        continue
                     if match_keywords(str(file_path), keywords):
                         lib_results.append(str(file_path))
                         if len(lib_results) >= per_library_cap:

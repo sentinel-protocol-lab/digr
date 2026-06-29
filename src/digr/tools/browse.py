@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from ._shared import add_library_entry, get_libraries, remove_library_entry
+from ._shared import (
+    add_library_entry,
+    get_libraries,
+    is_junk_path,
+    remove_library_entry,
+)
 
 
 async def list_libraries() -> str:
@@ -46,12 +51,14 @@ async def add_library(name: str, path: str) -> str:
 
     add_library_entry(name, folder)
 
-    # Quick count of audio files for confirmation
+    # Quick count of audio files for confirmation (skip macOS junk sidecars)
     audio_count = 0
     for ext in ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.flac", "*.ogg"]:
-        audio_count += len(list(folder.rglob(ext)))
+        audio_count += sum(1 for f in folder.rglob(ext) if not is_junk_path(f))
 
-    midi_count = len(list(folder.rglob("*.mid"))) + len(list(folder.rglob("*.midi")))
+    midi_count = sum(
+        1 for ext in ("*.mid", "*.midi") for f in folder.rglob(ext) if not is_junk_path(f)
+    )
 
     return (
         f"Library '{name}' added successfully!\n\n"
@@ -89,7 +96,9 @@ async def list_folders() -> str:
 
         try:
             folders = [
-                f for f in library.iterdir() if f.is_dir() and not f.name.startswith(".")
+                f
+                for f in library.iterdir()
+                if f.is_dir() and not f.name.startswith(".") and f.name != "__MACOSX"
             ]
             for folder in folders:
                 all_folders.append((library_name, folder.name))
@@ -128,18 +137,19 @@ async def count_samples_in_folder(folder_name: str) -> str:
 
         if folder_path.exists():
             try:
-                wav_count = len(list(folder_path.rglob("*.wav")))
-                aif_count = len(list(folder_path.rglob("*.aif"))) + len(
-                    list(folder_path.rglob("*.aiff"))
-                )
-                mp3_count = (
-                    len(list(folder_path.rglob("*.mp3")))
-                    + len(list(folder_path.rglob("*.flac")))
-                    + len(list(folder_path.rglob("*.ogg")))
-                )
-                mid_count = len(list(folder_path.rglob("*.mid"))) + len(
-                    list(folder_path.rglob("*.midi"))
-                )
+                def _count(*exts: str) -> int:
+                    # Skip macOS junk sidecars (._*) and __MACOSX folders.
+                    return sum(
+                        1
+                        for ext in exts
+                        for f in folder_path.rglob(ext)
+                        if not is_junk_path(f)
+                    )
+
+                wav_count = _count("*.wav")
+                aif_count = _count("*.aif", "*.aiff")
+                mp3_count = _count("*.mp3", "*.flac", "*.ogg")
+                mid_count = _count("*.mid", "*.midi")
 
                 total_files = wav_count + aif_count + mp3_count + mid_count
                 if total_files > 0:
@@ -185,6 +195,8 @@ async def list_all_samples_in_folder(folder_name: str, max_results: int = 100) -
                 "*.mid", "*.midi",
             ]:
                 for file_path in folder_path.rglob(extension):
+                    if is_junk_path(file_path):
+                        continue
                     samples.append((str(file_path), library_name))
                     if len(samples) >= max_results:
                         break
