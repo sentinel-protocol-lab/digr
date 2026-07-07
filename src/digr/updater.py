@@ -1,7 +1,6 @@
 """Self-update mechanism: download latest release from GitHub and overwrite local files."""
 
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -12,6 +11,18 @@ from pathlib import Path
 GITHUB_REPO = "sentinel-protocol-lab/digr"
 GITHUB_ZIP_URL = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+
+def _download_url(latest_version: str | None) -> str:
+    """Zip URL for an update: the tagged release when one exists, else main.
+
+    Pinning to the release tag matters commercially: "all v1.x updates" is the
+    v1 promise, and main may run ahead of the released tag (including future
+    paid-2.0 work). Only a repo with no releases yet falls back to main.
+    """
+    if latest_version:
+        return f"https://github.com/{GITHUB_REPO}/archive/refs/tags/v{latest_version}.zip"
+    return GITHUB_ZIP_URL
 
 # Directories and files to never overwrite (local state / user config)
 SKIP_DIRS = {".git", ".venv", "venv", ".claude", "__pycache__", ".pytest_cache", ".ruff_cache"}
@@ -76,7 +87,8 @@ def run_update(install_dir: Path) -> None:
     current = _get_current_version()
     print(f"Current version: {current}")
 
-    # Check latest version (informational — update proceeds regardless)
+    # Check latest release; when one exists, download exactly that tag so a
+    # customer never receives unreleased code from main.
     latest = _get_latest_version()
     if latest:
         print(f"Latest version:  {latest}")
@@ -87,13 +99,15 @@ def run_update(install_dir: Path) -> None:
         print("Could not check latest version (no releases yet or GitHub unreachable).")
         print("Downloading from main branch...\n")
 
+    zip_url = _download_url(latest)
+
     # Download the zip
     print("Downloading update...")
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             zip_path = Path(tmp_dir) / "update.zip"
 
-            urllib.request.urlretrieve(GITHUB_ZIP_URL, str(zip_path))
+            urllib.request.urlretrieve(zip_url, str(zip_path))
             print("Download complete.")
 
             # Extract
@@ -141,7 +155,7 @@ def run_update(install_dir: Path) -> None:
                 except OSError:
                     print("  Could not fully remove .venv — please delete it manually.")
 
-            print(f"\nUpdate complete! Restart Digr to use the new version.")
+            print("\nUpdate complete! Restart Digr to use the new version.")
 
     except urllib.error.URLError as e:
         print(f"ERROR: Could not download update — {e}")

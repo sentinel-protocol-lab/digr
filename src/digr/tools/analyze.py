@@ -83,7 +83,7 @@ async def analyze_sample(filepath: str) -> str:
 
         result = f"Analysis of: {file_path.name}\n\n"
         if duration < 3.0 and tempo > 0.0:
-            result += f"BPM: N/A (sample too short for reliable tempo detection)\n"
+            result += "BPM: N/A (sample too short for reliable tempo detection)\n"
         elif tempo_confidence < 0.3 and tempo > 0.0:
             result += f"BPM: {tempo:.1f} (low confidence — weak rhythmic content)\n"
         else:
@@ -219,7 +219,7 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
     notes_str = "\n".join(ppal_notes)
 
     result += f"Suggested clip length: {clip_length}\n\n"
-    result += f"Notes (bar|beat format):\n\n"
+    result += "Notes (bar|beat format):\n\n"
     result += notes_str
     result += "\n"
 

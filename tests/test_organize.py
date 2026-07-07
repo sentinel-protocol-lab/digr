@@ -1,7 +1,6 @@
 """Tests for organize tools."""
 
 import pytest
-from pathlib import Path
 
 from digr.tools.organize import (
     collect_samples,
@@ -87,4 +86,5 @@ async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
     result = await sort_samples(
         "kick", dest, categories="Kicks,Other", max_results=10, confirm=True
     )
+    assert "Copied" in result
     assert (tmp_path / "sorted").exists()

@@ -67,6 +67,7 @@ class TestSearchThenCollectWorkflow:
         await search_samples("kick", max_results=5)
         dest = str(tmp_path / "collected")
         result = await collect_search_results("1", dest, confirm=True)
+        assert "Copied 1/1" in result
         assert (tmp_path / "collected").exists()
 
     @pytest.mark.asyncio
@@ -90,6 +91,7 @@ class TestCollectSamplesWorkflow:
 
         # Execute
         result = await collect_samples("kick", dest, max_results=5, confirm=True)
+        assert "Copied" in result
         assert (tmp_path / "dest").exists()
 
 

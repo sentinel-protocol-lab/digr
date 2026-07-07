@@ -126,6 +126,7 @@ async def count_samples_in_folder(folder_name: str) -> str:
 
     total_wav = 0
     total_aif = 0
+    total_mp3 = 0
     total_mid = 0
     found_in = []
 
@@ -155,6 +156,7 @@ async def count_samples_in_folder(folder_name: str) -> str:
                 if total_files > 0:
                     total_wav += wav_count
                     total_aif += aif_count
+                    total_mp3 += mp3_count
                     total_mid += mid_count
                     found_in.append(f"{library_name}: {total_files} files")
             except (PermissionError, OSError):
@@ -166,11 +168,12 @@ async def count_samples_in_folder(folder_name: str) -> str:
     result = f"Sample count for '{folder_name}':\n\n"
     for location in found_in:
         result += f"  {location}\n"
-    result += f"\nTotal across all libraries:\n"
+    result += "\nTotal across all libraries:\n"
     result += f"WAV files: {total_wav}\n"
     result += f"AIF/AIFF files: {total_aif}\n"
+    result += f"MP3/FLAC/OGG files: {total_mp3}\n"
     result += f"MIDI files: {total_mid}\n"
-    result += f"Grand Total: {total_wav + total_aif + total_mid} files\n"
+    result += f"Grand Total: {total_wav + total_aif + total_mp3 + total_mid} files\n"
 
     return result
 

@@ -1,7 +1,6 @@
 """Shared test fixtures."""
 
 import pytest
-from pathlib import Path
 
 from digr.config import Config
 from digr.tools._shared import set_libraries

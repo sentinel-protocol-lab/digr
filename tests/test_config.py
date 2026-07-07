@@ -1,8 +1,6 @@
 """Tests for configuration system."""
 
 import json
-import os
-import pytest
 from pathlib import Path
 
 from digr.config import Config, load_config
@@ -67,6 +65,23 @@ def test_cli_overrides_env(tmp_path, monkeypatch):
 # --- License key file loading (Windows text-encoding edge cases) ---
 
 TEST_LICENSE_KEY = "A1B2C3D4-E5F60718-9ABCDEF0-1234ABCD"
+
+
+def test_corrupt_yaml_config_does_not_crash(tmp_path, capsys):
+    """A hand-edited, invalid config file must never stop the server starting.
+
+    Regression: this used to raise straight out of load_config, which killed
+    the MCP server at startup with a raw traceback in the client's log.
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("libraries: [unclosed", encoding="utf-8")
+
+    config = load_config(config_path=str(config_file))
+
+    assert isinstance(config, Config)
+    assert isinstance(config.libraries, dict)
+    # The failure is reported on stderr (stdout carries the MCP protocol).
+    assert "could not read config file" in capsys.readouterr().err
 
 
 def test_license_key_file_loaded(tmp_path, monkeypatch):

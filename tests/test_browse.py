@@ -44,6 +44,20 @@ async def test_count_samples_in_folder(mock_libraries):
 
 
 @pytest.mark.asyncio
+async def test_count_includes_mp3_in_grand_total(mock_libraries, sample_dir):
+    """MP3/FLAC/OGG files must appear in the totals, not just per-library counts."""
+    loops = sample_dir / "Loops"
+    loops.mkdir()
+    (loops / "loop_a.mp3").write_bytes(b"\x00" * 40)
+    (loops / "loop_b.flac").write_bytes(b"\x00" * 40)
+    (loops / "loop_c.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+
+    result = await count_samples_in_folder("Loops")
+    assert "MP3/FLAC/OGG files: 2" in result
+    assert "Grand Total: 3 files" in result
+
+
+@pytest.mark.asyncio
 async def test_count_nonexistent_folder(mock_libraries):
     result = await count_samples_in_folder("NonexistentFolder")
     assert "not found" in result
@@ -59,7 +73,10 @@ async def test_list_all_samples(mock_libraries):
 @pytest.mark.asyncio
 async def test_list_all_samples_respects_max(mock_libraries):
     result = await list_all_samples_in_folder("Drums", max_results=2)
-    lines = [l for l in result.split("\n") if l.strip() and l.strip()[0].isdigit() and ". " in l]
+    lines = [
+        line for line in result.split("\n")
+        if line.strip() and line.strip()[0].isdigit() and ". " in line
+    ]
     assert len(lines) <= 2
 
 

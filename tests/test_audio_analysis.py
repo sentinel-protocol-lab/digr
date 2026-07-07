@@ -1,10 +1,7 @@
 """Tests for the _audio_analysis module (numpy+scipy replacement for librosa)."""
 
-import tempfile
-from pathlib import Path
 
 import numpy as np
-import pytest
 import soundfile as sf
 
 from digr.tools._audio_analysis import (

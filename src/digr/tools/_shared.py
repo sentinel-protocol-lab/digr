@@ -1,7 +1,6 @@
 """Shared utilities for all tools: search engine, file helpers, state cache, license gating."""
 
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -164,6 +163,10 @@ def require_pro(tool_name: str) -> str | None:
     if licensed:
         return None
 
+    from ..platform_detect import default_config_dir
+
+    key_file = default_config_dir() / "license.key"
+
     parts = [f"'{tool_name}' is a Pro feature."]
     if reason:
         parts.append(reason)
@@ -173,7 +176,7 @@ def require_pro(tool_name: str) -> str | None:
         "Already purchased? Just paste your license key here and I'll activate "
         "it for you right away — Pro unlocks immediately, no restart needed.\n\n"
         "Prefer to set it up by hand? Put the key in a file or an env var:\n"
-        "  - File: ~/.config/digr/license.key\n"
+        f"  - File: {key_file}\n"
         "  - Environment: DIGR_LICENSE_KEY=your-key-here"
     )
     parts.append(

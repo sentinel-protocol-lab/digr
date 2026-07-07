@@ -72,7 +72,12 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
     matches = search_all_libraries(keyword, max_results)
 
     if not matches:
+        set_last_search_results([])
         return f"No samples found matching '{keyword}' across all libraries"
+
+    # Cache results so collect_search_results works after a BPM search too,
+    # instead of silently reading a stale cache from an earlier keyword search.
+    set_last_search_results(matches)
 
     result = f"Found {len(matches)} samples matching '{keyword}':\n"
     result += "Analyzing BPM (this may take a moment)...\n\n"
@@ -97,5 +102,7 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
             result += f"   Library: {library_name}\n"
             result += f"   Folder: {folder}\n"
             result += f"   Path: {path}\n\n"
+
+    result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
 
     return result
