@@ -201,6 +201,29 @@ if ($buildExit -eq 0) {
     Write-Warn "If the first launch also fails, add '$installDir' to your antivirus exclusions and re-run."
 }
 
+# ── 3c. Exclude the install folder from Windows Defender (best effort) ──────────
+# The audio stack (numpy/scipy/soundfile) is ~46 MB of native DLLs. On a fresh
+# process Defender scans each one the first time it's read, which on a slow
+# machine can take MINUTES -- long enough to blow Claude's hard 240-second
+# tool-call timeout on the customer's very first BPM search. Excluding the
+# install folder removes that scan, so the first Pro call stays fast.
+#
+# This needs admin; if the installer isn't elevated we just warn and carry on.
+# The server also warms the audio import in the background at startup, so a
+# machine WITHOUT the exclusion is never worse off than before -- the exclusion
+# is the belt to the warm-up's braces.
+Write-Step "Adding Digr to Windows Defender exclusions (speeds up the first BPM search)..."
+if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
+    try {
+        Add-MpPreference -ExclusionPath $installDir -ErrorAction Stop
+        Write-OK "Defender exclusion added for '$installDir'."
+    } catch {
+        Write-Warn "Couldn't add the Defender exclusion (usually needs admin). Skipping -- Digr still works; the first BPM search after a restart may just be slower the first time."
+    }
+} else {
+    Write-OK "Windows Defender not active; no exclusion needed."
+}
+
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
 Write-Step "Locating Claude Desktop..."
 
