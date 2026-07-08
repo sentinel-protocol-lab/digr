@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mido
 
-from ._shared import identify_library, require_pro
+from ._shared import audio_warming_message, identify_library, require_pro
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -47,6 +47,12 @@ async def analyze_sample(filepath: str) -> str:
     gate = require_pro("analyze_sample")
     if gate:
         return gate
+
+    # If the heavy audio stack is still cold-loading in the background, return a
+    # fast note instead of blocking past Claude's 240s tool-call timeout.
+    warming = audio_warming_message()
+    if warming:
+        return warming
 
     audio, np = _require_audio()
 

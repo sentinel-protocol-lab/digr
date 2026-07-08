@@ -2,6 +2,9 @@
 
 import json
 import shutil
+import sys
+import threading
+import time
 from pathlib import Path
 
 # Supported audio and MIDI file extensions
@@ -24,6 +27,85 @@ _license_key: str | None = None
 # Memoized (licensed, reason_if_not) from licensing.activate_or_check, so the
 # network is consulted at most once per server run.
 _license_status: tuple[bool, str | None] | None = None
+
+
+# --- Audio stack warm-up state ---
+# The Pro audio tools (analyze_sample, search_samples_by_bpm, rename_with_metadata)
+# import numpy/scipy/soundfile lazily on their first call. On a fresh Windows
+# process that first COLD import can take MINUTES -- ~46 MB of native DLLs read
+# off a slow disk and scanned by antivirus on first load -- which blows Claude
+# Desktop's hard 240-second tool-call timeout on the customer's very first BPM
+# search (confirmed against the MCP log: cold call ~4:07, warm retry 0.8s).
+#
+# Two coordinated defences live here:
+#   1. start_audio_warmup() runs that import in a background daemon thread at
+#      server startup, so the cold load happens off the timed tool-call path.
+#   2. audio_warming_message() lets a Pro tool return a fast "still warming up"
+#      note if a call arrives before the warm-up finishes, instead of blocking
+#      past the 240s ceiling. The user simply retries a moment later.
+_audio_ready = threading.Event()  # set once the warm-up import attempt completes
+
+
+def _log_warmup(message: str) -> None:
+    """Print a timestamped warm-up line to stderr.
+
+    FastMCP/stdio forwards the server's stderr into the client's MCP log, so
+    these lines are how we observe the real cold-import cost on a customer
+    machine without attaching a debugger.
+    """
+    print(f"[digr audio-warmup] {message}", file=sys.stderr, flush=True)
+
+
+def warm_audio_stack() -> None:
+    """Import the heavy audio stack once, timing it, then flag it ready.
+
+    Daemon-thread target. Importing ``_audio_analysis`` pulls in numpy + scipy
+    + soundfile, forcing their native DLLs to load (and be AV-scanned) now.
+    ``_audio_ready`` is set in a ``finally`` so it fires on SUCCESS OR FAILURE:
+    a free-tier install (no ``[audio]`` extras) must not leave the tools stuck
+    on "warming up" -- it falls through to ``_require_audio`` which raises the
+    proper "install the extras" error.
+    """
+    start = time.monotonic()
+    _log_warmup("starting cold import of numpy/scipy/soundfile...")
+    try:
+        from . import _audio_analysis  # noqa: F401  (the import IS the work)
+        import numpy  # noqa: F401
+
+        _log_warmup(f"ready after {time.monotonic() - start:.1f}s")
+    except Exception as exc:  # free-tier (no extras) or a transient failure
+        _log_warmup(f"import failed after {time.monotonic() - start:.1f}s: {exc!r}")
+    finally:
+        _audio_ready.set()
+
+
+def start_audio_warmup() -> threading.Thread:
+    """Kick off warm_audio_stack in a daemon thread (never blocks startup/exit)."""
+    thread = threading.Thread(
+        target=warm_audio_stack, name="digr-audio-warmup", daemon=True
+    )
+    thread.start()
+    return thread
+
+
+def audio_warming_message() -> str | None:
+    """Return a friendly "still warming up" message if the audio stack isn't
+    ready yet, else None so the caller proceeds.
+
+    This keeps the first cold Pro call from blocking past Claude's 240s
+    tool-call timeout: the background warm-up keeps loading and the user's next
+    attempt (a few seconds later) runs against the now-cached import instantly.
+    """
+    if _audio_ready.is_set():
+        return None
+    _log_warmup("a Pro audio tool was called before warm-up finished; asked to retry")
+    return (
+        "Digr is still warming up its audio engine -- a one-time load of the "
+        "BPM/key-detection libraries that can take a minute or two the first "
+        "time after Digr starts (longest on Windows, where antivirus scans the "
+        "libraries on first load). Please ask me to run this again in a moment; "
+        "it will be instant once warm-up finishes."
+    )
 
 
 def set_libraries(libraries: dict[str, Path]) -> None:

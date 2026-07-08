@@ -68,6 +68,46 @@ class TestServerCreation:
             or "digr.tools._audio_analysis" in __import__("sys").modules
         )
 
+    def test_warm_audio_stack_sets_ready_flag(self):
+        """warm_audio_stack must flag readiness so the tool gate can open."""
+        shared._audio_ready.clear()
+        shared.warm_audio_stack()
+        assert shared._audio_ready.is_set()
+
+
+class TestAudioWarmupGate:
+    """The 'still warming up' gate keeps a cold first Pro call from blocking
+    past Claude's 240s tool-call timeout: it returns a fast note until the
+    background import has finished."""
+
+    def test_message_is_none_once_ready(self):
+        shared._audio_ready.set()
+        assert shared.audio_warming_message() is None
+
+    def test_message_prompts_retry_while_cold(self):
+        shared._audio_ready.clear()
+        try:
+            msg = shared.audio_warming_message()
+            assert msg is not None
+            assert "warming up" in msg.lower()
+        finally:
+            shared._audio_ready.set()  # restore for later tests
+
+    @pytest.mark.asyncio
+    async def test_bpm_search_short_circuits_while_cold(self, mock_libraries, pro_license):
+        """While the audio stack is cold, search_samples_by_bpm returns the
+        warming note WITHOUT running the heavy per-file analysis loop."""
+        from digr.tools.search import search_samples_by_bpm
+
+        shared._audio_ready.clear()
+        try:
+            result = await search_samples_by_bpm("kick", max_results=10)
+            assert "warming up" in result.lower()
+            # It bailed out before caching any results.
+            assert get_last_search_results() == []
+        finally:
+            shared._audio_ready.set()  # restore for later tests
+
 
 class TestSearchThenCollectWorkflow:
     """Integration: search_samples -> collect_search_results (most common workflow)."""

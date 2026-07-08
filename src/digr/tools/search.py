@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ._shared import (
+    audio_warming_message,
     require_pro,
     search_all_libraries,
     set_last_search_results,
@@ -66,6 +67,12 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
     gate = require_pro("search_samples_by_bpm")
     if gate:
         return gate
+
+    # If the heavy audio stack is still cold-loading in the background, return a
+    # fast note instead of blocking past Claude's 240s tool-call timeout.
+    warming = audio_warming_message()
+    if warming:
+        return warming
 
     audio, np = _require_audio()
 
