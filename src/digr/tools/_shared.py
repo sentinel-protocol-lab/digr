@@ -100,11 +100,13 @@ def audio_warming_message() -> str | None:
         return None
     _log_warmup("a Pro audio tool was called before warm-up finished; asked to retry")
     return (
-        "Digr is still warming up its audio engine -- a one-time load of the "
-        "BPM/key-detection libraries that can take a minute or two the first "
-        "time after Digr starts (longest on Windows, where antivirus scans the "
-        "libraries on first load). Please ask me to run this again in a moment; "
-        "it will be instant once warm-up finishes."
+        "Digr's audio engine is still warming up -- a one-time load of the "
+        "BPM/key-detection libraries that runs in the background when Digr "
+        "starts. This is normal and it is loading correctly; the first time "
+        "can take a few minutes on Windows (antivirus scans the libraries on "
+        "first load). Do NOT restart Digr or Claude -- that would start the "
+        "load over. Just wait a moment and ask me to try again; every call is "
+        "instant once warm-up finishes."
     )
 
 

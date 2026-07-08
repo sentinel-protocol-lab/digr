@@ -171,7 +171,33 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory($mcpb.FullName, $installDir)
 Write-OK "Bundle extracted."
 
-# ── 3b. Pre-build the dependency environment ───────────────────────────────────
+# ── 3b. Exclude the install folder from Windows Defender (best effort) ──────────
+# The audio stack (numpy/scipy/soundfile) is ~46 MB of native DLLs. On a fresh
+# process Windows Defender re-scans each one on first load. Measured on a slow
+# test machine: 6m15s cold with Defender on vs 1m26s with real-time protection
+# off -- so the scan is ~77% of the cold-start cost, and long enough to blow
+# Claude's hard 240-second tool-call timeout on the customer's first BPM search.
+# Excluding the install folder removes that scan.
+#
+# Added BEFORE the build below so (a) the freshly-written libraries are never
+# scanned in the first place and (b) the exclusion is guaranteed active before
+# Claude ever loads them. Needs admin; if the installer isn't elevated we warn
+# and carry on -- the server also background-warms the import at startup and
+# gates the Pro tools behind a fast "still warming up" reply, so a machine
+# without the exclusion is never worse off, just slower on the very first call.
+Write-Step "Adding Digr to Windows Defender exclusions (speeds up the first BPM search)..."
+if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
+    try {
+        Add-MpPreference -ExclusionPath $installDir -ErrorAction Stop
+        Write-OK "Defender exclusion added for '$installDir'."
+    } catch {
+        Write-Warn "Couldn't add the Defender exclusion (usually needs admin). Skipping -- Digr still works; the first BPM search will just be slower the first time."
+    }
+} else {
+    Write-OK "Windows Defender not active; no exclusion needed."
+}
+
+# ── 3c. Pre-build the dependency environment ───────────────────────────────────
 Write-Step "Building Digr's environment (downloads ~60 MB, 1-2 min)..."
 
 # Build the .venv now, while Claude Desktop is closed and nothing else is using
@@ -183,13 +209,21 @@ Write-Step "Building Digr's environment (downloads ~60 MB, 1-2 min)..."
 # first launch instant. (Mirrors the runtime command in step 5: same --directory
 # and --extra, so this is the exact venv `uv run` will reuse.)
 #
+# --link-mode copy is CRITICAL for the Defender exclusion above to work. By
+# default uv HARDLINKS each package's files from its global cache
+# (%LOCALAPPDATA%\uv\cache) into the .venv; a hardlink leaves the real bytes in
+# the cache -- OUTSIDE the excluded install folder -- so Defender still scans
+# them on load and the exclusion buys nothing (confirmed on the test machine:
+# still 6m15s cold WITH the folder excluded). Copying puts the real DLLs inside
+# $installDir, where the exclusion actually covers them.
+#
 # uv writes all its progress ("Using CPython...", "Downloading...") to stderr.
 # Under the script-wide $ErrorActionPreference='Stop', merging that with 2>&1
 # turns uv's first benign status line into a terminating error -- so drop to
 # 'Continue' for just this call and judge success by the real exit code.
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-& $uvPath sync --directory $installDir --extra audio 2>&1 |
+& $uvPath sync --directory $installDir --extra audio --link-mode copy 2>&1 |
     ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
 $buildExit = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
@@ -199,29 +233,6 @@ if ($buildExit -eq 0) {
 } else {
     Write-Warn "Pre-build did not finish (exit $buildExit); Claude will build it on first launch."
     Write-Warn "If the first launch also fails, add '$installDir' to your antivirus exclusions and re-run."
-}
-
-# ── 3c. Exclude the install folder from Windows Defender (best effort) ──────────
-# The audio stack (numpy/scipy/soundfile) is ~46 MB of native DLLs. On a fresh
-# process Defender scans each one the first time it's read, which on a slow
-# machine can take MINUTES -- long enough to blow Claude's hard 240-second
-# tool-call timeout on the customer's very first BPM search. Excluding the
-# install folder removes that scan, so the first Pro call stays fast.
-#
-# This needs admin; if the installer isn't elevated we just warn and carry on.
-# The server also warms the audio import in the background at startup, so a
-# machine WITHOUT the exclusion is never worse off than before -- the exclusion
-# is the belt to the warm-up's braces.
-Write-Step "Adding Digr to Windows Defender exclusions (speeds up the first BPM search)..."
-if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
-    try {
-        Add-MpPreference -ExclusionPath $installDir -ErrorAction Stop
-        Write-OK "Defender exclusion added for '$installDir'."
-    } catch {
-        Write-Warn "Couldn't add the Defender exclusion (usually needs admin). Skipping -- Digr still works; the first BPM search after a restart may just be slower the first time."
-    }
-} else {
-    Write-OK "Windows Defender not active; no exclusion needed."
 }
 
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
