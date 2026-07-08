@@ -76,34 +76,58 @@ class TestServerCreation:
 
 
 class TestAudioWarmupGate:
-    """The 'still warming up' gate keeps a cold first Pro call from blocking
-    past Claude's 240s tool-call timeout: it returns a fast note until the
-    background import has finished."""
+    """The audio gate holds a cold first Pro call until the background import
+    finishes (so results arrive on their own), and falls back to a friendly
+    note only if warm-up overruns the safe cap under Claude's 240s timeout."""
 
-    def test_message_is_none_once_ready(self):
+    @pytest.mark.asyncio
+    async def test_message_is_none_once_ready(self):
         shared._audio_ready.set()
-        assert shared.audio_warming_message() is None
+        assert await shared.await_audio_ready_or_message() is None
 
-    def test_message_prompts_retry_while_cold(self):
+    @pytest.mark.asyncio
+    async def test_note_returned_when_warmup_overruns_cap(self, monkeypatch):
+        """If the stack is still cold after the wait cap, return a don't-restart
+        note (using a tiny cap so the test doesn't actually wait)."""
+        monkeypatch.setattr(shared, "_AUDIO_WARM_WAIT_SECONDS", 0.05)
         shared._audio_ready.clear()
         try:
-            msg = shared.audio_warming_message()
+            msg = await shared.await_audio_ready_or_message()
             assert msg is not None
-            assert "warming up" in msg.lower()
+            assert "warm up" in msg.lower()
+            assert "not restart" in msg.lower()  # must steer off the reset footgun
         finally:
             shared._audio_ready.set()  # restore for later tests
 
     @pytest.mark.asyncio
-    async def test_bpm_search_short_circuits_while_cold(self, mock_libraries, pro_license):
-        """While the audio stack is cold, search_samples_by_bpm returns the
-        warming note WITHOUT running the heavy per-file analysis loop."""
+    async def test_ready_flag_set_midwait_lets_call_proceed(self, monkeypatch):
+        """A call waiting on a cold stack must proceed the instant warm-up
+        finishes (the Event wakes the waiter), not sit out the whole cap."""
+        import asyncio
+
+        monkeypatch.setattr(shared, "_AUDIO_WARM_WAIT_SECONDS", 5)
+        shared._audio_ready.clear()
+        try:
+            waiter = asyncio.ensure_future(shared.await_audio_ready_or_message())
+            await asyncio.sleep(0.05)
+            shared._audio_ready.set()  # warm-up "finishes"
+            assert await waiter is None  # proceeds, no note
+        finally:
+            shared._audio_ready.set()
+
+    @pytest.mark.asyncio
+    async def test_bpm_search_short_circuits_when_warmup_overruns(
+        self, mock_libraries, pro_license, monkeypatch
+    ):
+        """If warm-up overruns the cap, search_samples_by_bpm returns the note
+        WITHOUT running the heavy per-file analysis loop or caching results."""
         from digr.tools.search import search_samples_by_bpm
 
+        monkeypatch.setattr(shared, "_AUDIO_WARM_WAIT_SECONDS", 0.05)
         shared._audio_ready.clear()
         try:
             result = await search_samples_by_bpm("kick", max_results=10)
-            assert "warming up" in result.lower()
-            # It bailed out before caching any results.
+            assert "warm up" in result.lower()
             assert get_last_search_results() == []
         finally:
             shared._audio_ready.set()  # restore for later tests
