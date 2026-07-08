@@ -88,43 +88,28 @@ def start_audio_warmup() -> threading.Thread:
     return thread
 
 
-# The first cold Pro call waits up to this long for the background warm-up to
-# finish before falling back to the retry note. Kept safely under Claude's
-# 240-second tool-call timeout, leaving room for the analysis that follows, so
-# the wait can never itself become a hang.
-_AUDIO_WARM_WAIT_SECONDS = 180
+def audio_warming_message() -> str | None:
+    """Return a friendly "still warming up" message if the audio stack isn't
+    ready yet, else None so the caller proceeds immediately.
 
-
-async def await_audio_ready_or_message() -> str | None:
-    """Wait for the background audio warm-up to finish, then let the caller
-    proceed -- so the first cold Pro call returns real results on its own
-    instead of making the user poll and retry.
-
-    An MCP server can't push a "ready now" message, so instead of returning
-    immediately we hold the call until the stack is warm (up to
-    ``_AUDIO_WARM_WAIT_SECONDS``, well under Claude's 240s tool-call timeout).
-    The wait runs off the event loop via ``asyncio.to_thread`` so other tool
-    calls aren't blocked. Returns None once ready (proceed); only if warm-up is
-    somehow STILL going after the cap does it return a friendly note, and even
-    then the call returns comfortably under the timeout. ``_audio_ready`` is set
-    on warm-up success OR failure, so a free-tier install falls straight through
-    to the real "install the extras" error rather than waiting.
+    This is a single instant check -- it never waits. That's deliberate: an
+    in-process wait here can stall on Python's GIL while the warm-up thread is
+    mid-import (numpy/scipy's C extensions hold it for long stretches), so a
+    "bounded wait" can silently degrade into an unbounded one. Returning
+    immediately guarantees the tool call itself is always fast; the cost is
+    that the user must ask again once the engine is warm.
     """
-    import asyncio
-
     if _audio_ready.is_set():
         return None
-    ready = await asyncio.to_thread(_audio_ready.wait, _AUDIO_WARM_WAIT_SECONDS)
-    if ready:
-        return None
-    _log_warmup("still warming past the wait cap; returned the retry note")
+    _log_warmup("a Pro audio tool was called before warm-up finished; asked to retry")
     return (
-        "Digr's audio engine is taking longer than usual to warm up -- a "
-        "one-time background load of the BPM/key-detection libraries that runs "
-        "when Digr starts (slowest on Windows, where antivirus scans them on "
-        "first load). It is still loading and working correctly. Do NOT restart "
-        "Digr or Claude -- that restarts the load from scratch. Just ask me to "
-        "try again in a moment; it will be instant once it finishes loading."
+        "Digr's audio engine is still warming up -- a one-time background load "
+        "of the BPM/key-detection libraries that runs when Digr starts. This is "
+        "normal and it is loading correctly; it can take a while the first time "
+        "on Windows (antivirus scans the libraries on first load). Do NOT "
+        "restart Digr or Claude -- that would start the load over. Just wait a "
+        "moment and ask me to try again; it will be instant once warm-up "
+        "finishes."
     )
 
 

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from ._shared import (
-    await_audio_ready_or_message,
+    audio_warming_message,
     require_pro,
     search_all_libraries,
     set_last_search_results,
@@ -68,9 +68,9 @@ async def search_samples_by_bpm(keyword: str, max_results: int = 20) -> str:
     if gate:
         return gate
 
-    # Wait for the background audio warm-up so a cold first call returns results
-    # on its own; only falls back to a note if warm-up overruns the safe cap.
-    warming = await await_audio_ready_or_message()
+    # If the heavy audio stack is still cold-loading in the background, return a
+    # fast note instead of blocking past Claude's 240s tool-call timeout.
+    warming = audio_warming_message()
     if warming:
         return warming
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 
 from ._shared import (
-    await_audio_ready_or_message,
+    audio_warming_message,
     copy_or_move,
     get_last_search_results,
     get_libraries,
@@ -251,9 +251,9 @@ async def rename_with_metadata(
         if gate:
             return gate
 
-        # Wait for the background audio warm-up so a cold first call returns
-        # results on its own; only falls back to a note if it overruns the cap.
-        warming = await await_audio_ready_or_message()
+        # If the heavy audio stack is still cold-loading in the background,
+        # return a fast note instead of blocking past Claude's 240s timeout.
+        warming = audio_warming_message()
         if warming:
             return warming
 
