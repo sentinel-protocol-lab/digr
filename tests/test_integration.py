@@ -36,37 +36,31 @@ class TestServerCreation:
         mcp = create_server(config)
         assert mcp is not None
 
-    def test_audio_warmup_is_background_daemon_and_imports_stack(self):
-        """The heavy audio import (numpy/scipy/soundfile) must be warmed off
-        the tool-call path at startup, so a cold first Pro call can't exceed
-        Claude's 240s tool-call timeout. It runs in a daemon thread (never
-        blocks startup/shutdown) and imports the stack with no tool call."""
+    def test_create_server_warms_audio_stack_synchronously_on_main_thread(self):
+        """The heavy audio import (numpy/scipy/soundfile) must be warmed at
+        startup SYNCHRONOUSLY on the main thread -- NOT on a background daemon
+        thread, which starves for the GIL and can stall for minutes. By the time
+        create_server returns, the stack is imported and the ready flag is set,
+        and NO warm-up thread was spawned."""
         import sys
-
-        from digr.server import _start_audio_warmup
-
-        thread = _start_audio_warmup()
-        assert thread.daemon  # must never block server startup or process exit
-        thread.join(timeout=30)
-        assert not thread.is_alive()
-        assert "digr.tools._audio_analysis" in sys.modules
-
-    def test_create_server_starts_the_audio_warmup(self):
-        """create_server must actually kick the warm-up off (not just define it)."""
         import threading
 
-        before = sum(
-            1 for t in threading.enumerate() if t.name == "digr-audio-warmup"
-        )
+        shared._audio_ready.clear()
+        warmup_threads_before = [
+            t.name for t in threading.enumerate() if t.name == "digr-audio-warmup"
+        ]
+
         create_server(Config())
-        after_names = [t.name for t in threading.enumerate()]
-        # Either the thread is still running, or it already finished its (fast,
-        # cached) import — both prove create_server launched it. The daemon
-        # thread is harmless; we don't join it here.
-        assert (
-            after_names.count("digr-audio-warmup") > before
-            or "digr.tools._audio_analysis" in __import__("sys").modules
-        )
+
+        # Imported + flagged ready by the time create_server returns (synchronous),
+        # so a Pro tool call arriving right after startup finds the stack warm.
+        assert "digr.tools._audio_analysis" in sys.modules
+        assert shared._audio_ready.is_set()
+        # No background warm-up thread exists -- the whole point of the fix.
+        warmup_threads_after = [
+            t.name for t in threading.enumerate() if t.name == "digr-audio-warmup"
+        ]
+        assert warmup_threads_after == warmup_threads_before == []
 
     def test_warm_audio_stack_sets_ready_flag(self):
         """warm_audio_stack must flag readiness so the tool gate can open."""

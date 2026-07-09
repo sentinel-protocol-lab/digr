@@ -1,11 +1,9 @@
 """FastMCP server definition with all tool registrations."""
 
-import threading
-
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .tools._shared import set_libraries, set_license_key, start_audio_warmup
+from .tools._shared import set_libraries, set_license_key, warm_audio_stack
 from .tools.analyze import analyze_sample, read_midi
 from .tools.browse import (
     add_library,
@@ -26,16 +24,6 @@ from .tools.organize import (
 from .tools.search import search_samples, search_samples_by_bpm
 
 
-def _start_audio_warmup() -> threading.Thread:
-    """Start the background audio-stack warm-up (see tools/_shared.py).
-
-    Thin wrapper around ``start_audio_warmup`` kept for callers/tests that
-    reference it here. The warm-up logic and the "still warming up" tool gate
-    live together in ``tools/_shared`` so the Pro tools can share the state.
-    """
-    return start_audio_warmup()
-
-
 def create_server(config: Config | None = None) -> FastMCP:
     """Create and configure the FastMCP server with all tools.
 
@@ -49,10 +37,18 @@ def create_server(config: Config | None = None) -> FastMCP:
     set_libraries(config.libraries)
     set_license_key(config.license_key)
 
-    # Kick off the heavy audio-stack import now, in the background, so a slow
-    # cold load can't stall the customer's first Pro tool call past Claude's
-    # 240s timeout. Started before FastMCP setup to maximise the head start.
-    _start_audio_warmup()
+    # Warm the heavy audio stack (numpy/scipy/soundfile) NOW, synchronously, on
+    # the MAIN thread -- before mcp.run() (in __main__) starts the asyncio event
+    # loop. This blocks server creation for the few seconds the import takes,
+    # which is deliberate: on the main thread the cold import is fast, but on a
+    # background daemon thread it starves for the GIL against the idle stdio
+    # event loop and can stall for MINUTES (observed on Windows: a 56-minute
+    # idle stall that only finished once tool-call traffic woke the loop).
+    # Paying it up front keeps it off the 240s tool-call path, so the customer's
+    # first Pro call is instant. warm_audio_stack swallows an ImportError
+    # (free-tier, no [audio] extras) and just flags ready, so this never blocks
+    # or breaks a free install.
+    warm_audio_stack()
 
     mcp = FastMCP(
         "digr",

@@ -31,18 +31,26 @@ _license_status: tuple[bool, str | None] | None = None
 
 # --- Audio stack warm-up state ---
 # The Pro audio tools (analyze_sample, search_samples_by_bpm, rename_with_metadata)
-# import numpy/scipy/soundfile lazily on their first call. On a fresh Windows
-# process that first COLD import can take MINUTES -- ~46 MB of native DLLs read
-# off a slow disk and scanned by antivirus on first load -- which blows Claude
-# Desktop's hard 240-second tool-call timeout on the customer's very first BPM
-# search (confirmed against the MCP log: cold call ~4:07, warm retry 0.8s).
+# need numpy/scipy/soundfile. Importing that stack is only a few seconds on the
+# MAIN thread -- but where the import happens matters enormously:
+#   * lazily, on the first Pro call -> it sits on Claude Desktop's 240s tool-call
+#     path and a slow cold load blows the timeout (first BPM search hangs);
+#   * on a BACKGROUND daemon thread -> a C-extension import there starves for the
+#     GIL against the idle asyncio/stdio loop and can stall for MINUTES (observed
+#     on Windows: a 56-minute idle stall that only finished once tool-call
+#     traffic woke the loop). This is the real cause of the "cold BPM hang" saga
+#     -- NOT antivirus; the same import is ~seconds on the main thread.
 #
-# Two coordinated defences live here:
-#   1. start_audio_warmup() runs that import in a background daemon thread at
-#      server startup, so the cold load happens off the timed tool-call path.
-#   2. audio_warming_message() lets a Pro tool return a fast "still warming up"
-#      note if a call arrives before the warm-up finishes, instead of blocking
-#      past the 240s ceiling. The user simply retries a moment later.
+# So the import is done ONCE, SYNCHRONOUSLY, on the MAIN thread at server startup
+# -- see warm_audio_stack(), called from create_server() before mcp.run() starts
+# the event loop. Two pieces live here:
+#   1. warm_audio_stack() does that main-thread import, times it, and sets
+#      _audio_ready. create_server calls it synchronously, so by the time any
+#      tool call can arrive the stack is already warm.
+#   2. audio_warming_message() is a belt-and-suspenders gate: if a Pro call ever
+#      arrives before _audio_ready is set it returns a fast "still warming up"
+#      note instead of blocking. With the synchronous warm-up it should never
+#      fire, but it guarantees a Pro tool can never hang on a cold import.
 _audio_ready = threading.Event()  # set once the warm-up import attempt completes
 
 
@@ -59,12 +67,15 @@ def _log_warmup(message: str) -> None:
 def warm_audio_stack() -> None:
     """Import the heavy audio stack once, timing it, then flag it ready.
 
-    Daemon-thread target. Importing ``_audio_analysis`` pulls in numpy + scipy
-    + soundfile, forcing their native DLLs to load (and be AV-scanned) now.
-    ``_audio_ready`` is set in a ``finally`` so it fires on SUCCESS OR FAILURE:
-    a free-tier install (no ``[audio]`` extras) must not leave the tools stuck
-    on "warming up" -- it falls through to ``_require_audio`` which raises the
-    proper "install the extras" error.
+    Called SYNCHRONOUSLY on the MAIN thread from create_server() at startup --
+    never on a background thread, where a C-extension import starves for the GIL
+    and can stall for minutes. Importing ``_audio_analysis`` pulls in numpy +
+    scipy + soundfile, forcing their native code to load now. ``_audio_ready``
+    is set in a ``finally`` so it fires on SUCCESS OR FAILURE: a free-tier
+    install (no ``[audio]`` extras) must not leave the tools stuck on "warming
+    up" -- it falls through to ``_require_audio`` which raises the proper
+    "install the extras" error, and the synchronous import fails fast so it
+    never delays a free-tier startup.
     """
     start = time.monotonic()
     _log_warmup("starting cold import of numpy/scipy/soundfile...")
@@ -77,15 +88,6 @@ def warm_audio_stack() -> None:
         _log_warmup(f"import failed after {time.monotonic() - start:.1f}s: {exc!r}")
     finally:
         _audio_ready.set()
-
-
-def start_audio_warmup() -> threading.Thread:
-    """Kick off warm_audio_stack in a daemon thread (never blocks startup/exit)."""
-    thread = threading.Thread(
-        target=warm_audio_stack, name="digr-audio-warmup", daemon=True
-    )
-    thread.start()
-    return thread
 
 
 def audio_warming_message() -> str | None:
