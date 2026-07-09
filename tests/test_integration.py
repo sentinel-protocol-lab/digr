@@ -36,31 +36,41 @@ class TestServerCreation:
         mcp = create_server(config)
         assert mcp is not None
 
-    def test_create_server_warms_audio_stack_synchronously_on_main_thread(self):
-        """The heavy audio import (numpy/scipy/soundfile) must be warmed at
-        startup SYNCHRONOUSLY on the main thread -- NOT on a background daemon
-        thread, which starves for the GIL and can stall for minutes. By the time
-        create_server returns, the stack is imported and the ready flag is set,
-        and NO warm-up thread was spawned."""
-        import sys
-        import threading
-
+    def test_create_server_does_not_warm_audio_stack_itself(self):
+        """create_server() must only WIRE UP the warm-up (via the FastMCP
+        lifespan) -- it must not run the heavy numpy/scipy/soundfile import
+        itself. Running it inline here would put us back to blocking the
+        caller (and, in production, the MCP `initialize` handshake) on the
+        cold import, which is the exact bug this design avoids: a customer
+        on old/slow hardware hit a cold import slow enough that Claude
+        Desktop's own connect timeout fired first, and Claude gave up before
+        the server ever answered `initialize` ("could not attach to MCP
+        server")."""
         shared._audio_ready.clear()
-        warmup_threads_before = [
-            t.name for t in threading.enumerate() if t.name == "digr-audio-warmup"
-        ]
 
         create_server(Config())
 
-        # Imported + flagged ready by the time create_server returns (synchronous),
-        # so a Pro tool call arriving right after startup finds the stack warm.
-        assert "digr.tools._audio_analysis" in sys.modules
+        assert not shared._audio_ready.is_set()
+
+    @pytest.mark.asyncio
+    async def test_lifespan_warms_audio_stack_without_delaying_the_handshake(self):
+        """_audio_warmup_lifespan must let its caller (the MCP request loop,
+        which answers `initialize`) proceed immediately, THEN warm the audio
+        stack -- on the MAIN thread, so no background-thread GIL contention
+        with the idle event loop (the separately diagnosed and fixed cause of
+        the earlier minutes-long stalls)."""
+        from digr.server import _audio_warmup_lifespan
+
+        shared._audio_ready.clear()
+        mcp = create_server(Config())
+
+        async with _audio_warmup_lifespan(mcp):
+            # Entering must not itself wait for the import -- this is what
+            # lets `initialize` get answered even if the import takes minutes.
+            assert not shared._audio_ready.is_set()
+
+        # Exiting waits for the scheduled warm-up task, so by here it's done.
         assert shared._audio_ready.is_set()
-        # No background warm-up thread exists -- the whole point of the fix.
-        warmup_threads_after = [
-            t.name for t in threading.enumerate() if t.name == "digr-audio-warmup"
-        ]
-        assert warmup_threads_after == warmup_threads_before == []
 
     def test_warm_audio_stack_sets_ready_flag(self):
         """warm_audio_stack must flag readiness so the tool gate can open."""

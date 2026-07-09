@@ -32,7 +32,7 @@ _license_status: tuple[bool, str | None] | None = None
 # --- Audio stack warm-up state ---
 # The Pro audio tools (analyze_sample, search_samples_by_bpm, rename_with_metadata)
 # need numpy/scipy/soundfile. Importing that stack is only a few seconds on the
-# MAIN thread -- but where the import happens matters enormously:
+# MAIN thread -- but where and when the import happens matters enormously:
 #   * lazily, on the first Pro call -> it sits on Claude Desktop's 240s tool-call
 #     path and a slow cold load blows the timeout (first BPM search hangs);
 #   * on a BACKGROUND daemon thread -> a C-extension import there starves for the
@@ -40,17 +40,22 @@ _license_status: tuple[bool, str | None] | None = None
 #     on Windows: a 56-minute idle stall that only finished once tool-call
 #     traffic woke the loop). This is the real cause of the "cold BPM hang" saga
 #     -- NOT antivirus; the same import is ~seconds on the main thread.
+#   * synchronously BEFORE the transport starts reading stdio -> a slow cold
+#     import (old/cold hardware) delays the `initialize` reply past the
+#     client's own connect-handshake timeout, and the client gives up before
+#     the server ever answers -- observed for real on a customer Mac ("could
+#     not attach to MCP server").
 #
-# So the import is done ONCE, SYNCHRONOUSLY, on the MAIN thread at server startup
-# -- see warm_audio_stack(), called from create_server() before mcp.run() starts
-# the event loop. Two pieces live here:
-#   1. warm_audio_stack() does that main-thread import, times it, and sets
-#      _audio_ready. create_server calls it synchronously, so by the time any
-#      tool call can arrive the stack is already warm.
-#   2. audio_warming_message() is a belt-and-suspenders gate: if a Pro call ever
-#      arrives before _audio_ready is set it returns a fast "still warming up"
-#      note instead of blocking. With the synchronous warm-up it should never
-#      fire, but it guarantees a Pro tool can never hang on a cold import.
+# So the import is done ONCE, SYNCHRONOUSLY, on the MAIN thread, but scheduled
+# to start just AFTER the transport is already up -- see server.py's
+# _audio_warmup_lifespan, which lets `initialize` get answered first and then
+# runs warm_audio_stack() as a lifespan task. Two pieces live here:
+#   1. warm_audio_stack() does the main-thread import, times it, and sets
+#      _audio_ready.
+#   2. audio_warming_message() is a belt-and-suspenders gate: if a Pro call
+#      arrives before _audio_ready is set (the import is still running, or a
+#      request queued up behind it) it returns a fast "still warming up" note
+#      instead of blocking, so a Pro tool can never hang on a cold import.
 _audio_ready = threading.Event()  # set once the warm-up import attempt completes
 
 
@@ -67,15 +72,17 @@ def _log_warmup(message: str) -> None:
 def warm_audio_stack() -> None:
     """Import the heavy audio stack once, timing it, then flag it ready.
 
-    Called SYNCHRONOUSLY on the MAIN thread from create_server() at startup --
-    never on a background thread, where a C-extension import starves for the GIL
-    and can stall for minutes. Importing ``_audio_analysis`` pulls in numpy +
-    scipy + soundfile, forcing their native code to load now. ``_audio_ready``
-    is set in a ``finally`` so it fires on SUCCESS OR FAILURE: a free-tier
-    install (no ``[audio]`` extras) must not leave the tools stuck on "warming
-    up" -- it falls through to ``_require_audio`` which raises the proper
-    "install the extras" error, and the synchronous import fails fast so it
-    never delays a free-tier startup.
+    Called SYNCHRONOUSLY on the MAIN thread, as a lifespan task scheduled
+    from server.py's _audio_warmup_lifespan (after `initialize` has had a
+    head start, not before it) -- never on a background thread, where a
+    C-extension import starves for the GIL and can stall for minutes.
+    Importing ``_audio_analysis`` pulls in numpy + scipy + soundfile, forcing
+    their native code to load now. ``_audio_ready`` is set in a ``finally``
+    so it fires on SUCCESS OR FAILURE: a free-tier install (no ``[audio]``
+    extras) must not leave the tools stuck on "warming up" -- it falls
+    through to ``_require_audio`` which raises the proper "install the
+    extras" error, and the synchronous import fails fast so it never delays
+    a free-tier startup.
     """
     start = time.monotonic()
     _log_warmup("starting cold import of numpy/scipy/soundfile...")
