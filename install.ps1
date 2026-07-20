@@ -201,6 +201,42 @@ if ($buildExit -eq 0) {
     Write-Warn "If the first launch also fails, add '$installDir' to your antivirus exclusions and re-run."
 }
 
+# ── 3c. Pre-load the audio engine once (moves the antivirus scan here) ─────────
+# The first time the freshly installed numpy/scipy/soundfile DLLs are loaded,
+# Windows Defender inspects every one of them -- measured at 10+ minutes on old
+# hardware. That verdict is cached per file, so whoever loads them FIRST pays
+# the whole cost. Without this step that's the customer's first chat: Digr's
+# startup warm-up goes silent for the duration and their first request times
+# out. Loading the stack once here instead means the scan happens under an
+# installer message where waiting is expected, and Claude's first launch then
+# warms in seconds. Import failures are non-fatal: worst case is exactly the
+# old behaviour (first launch does the load).
+$prewarmed = $false
+if ($buildExit -eq 0) {
+    Write-Step "Preparing the audio engine (one-time; up to ~10 min on older machines -- leave this window open)..."
+    $venvPython = Join-Path $installDir ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        # Same stderr rule as steps 2 and 3b: run under 'Continue' and judge by
+        # exit code, so benign stderr output isn't promoted to a false failure.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        & $venvPython -c "import digr.tools._audio_analysis" 2>&1 |
+            ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
+        $warmExit = $LASTEXITCODE
+        $sw.Stop()
+        $ErrorActionPreference = $prevEAP
+        if ($warmExit -eq 0) {
+            $prewarmed = $true
+            Write-OK ("Audio engine ready ({0:N0}s)." -f $sw.Elapsed.TotalSeconds)
+        } else {
+            Write-Warn "Audio engine pre-load did not finish (exit $warmExit); Digr will load it on first use instead."
+        }
+    } else {
+        Write-Warn "Environment python.exe not found; Digr will load the audio engine on first use instead."
+    }
+}
+
 # ── 4. Locate Claude Desktop config ───────────────────────────────────────────
 Write-Step "Locating Claude Desktop..."
 
@@ -316,7 +352,14 @@ Write-Host "  =============================================" -ForegroundColor Da
 Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Digr is now available in Claude Desktop." -ForegroundColor White
-Write-Host "  The environment was built during install, so Digr is ready right away." -ForegroundColor DarkGray
+if ($prewarmed) {
+    Write-Host "  The environment was built and the audio engine pre-loaded during" -ForegroundColor DarkGray
+    Write-Host "  install, so Digr is ready right away." -ForegroundColor DarkGray
+} else {
+    Write-Host "  Note: Digr's first analysis may take several minutes while Windows" -ForegroundColor DarkGray
+    Write-Host "  checks the newly installed files (one-time). If a request times out," -ForegroundColor DarkGray
+    Write-Host "  wait a couple of minutes and ask again -- don't restart Claude." -ForegroundColor DarkGray
+}
 Write-Host ""
 Write-Host "  16 tools available (11 free, 5 Pro)" -ForegroundColor DarkGray
 Write-Host "  Pro features: paste your license key to Claude and ask it to" -ForegroundColor DarkGray
