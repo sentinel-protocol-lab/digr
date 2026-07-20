@@ -210,13 +210,14 @@ Prefer to set it up by hand? Use either:
 
 ### Notes
 
-- **The first BPM/key analysis can take a little longer.** The first time you
-  use a Pro analysis tool (`analyze_sample` or `search_samples_by_bpm`), Digr
-  loads its audio engine for the first time. This usually takes a few seconds,
-  but can be up to a minute or two on an older or slower machine — and on
-  Windows the first run may be slower still while antivirus scans the newly
-  installed files. It's a one-off: every analysis after that is fast. Search,
-  browsing and copy/move tools are never affected.
+- **Digr loads its audio engine in the background when it starts.** This
+  usually takes a few seconds — on Windows the installer pre-loads the engine
+  during installation, so even the very first launch starts warm. On an older
+  machine, or one busy with something heavy (an OS update installing, say), a
+  load can occasionally take a few minutes, and requests sent during it may
+  wait or time out. If that happens, wait a minute or two and ask again —
+  don't restart Claude or Digr, as a restart begins the load over. Once
+  loaded, everything is fast for the rest of the session.
 
 ## Development
 
