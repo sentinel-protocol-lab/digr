@@ -1,9 +1,13 @@
 """FastMCP server definition with all tool registrations."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .tools._shared import set_libraries, set_license_key
+from .tools._shared import set_libraries, set_license_key, warm_audio_stack
 from .tools.analyze import analyze_sample, read_midi
 from .tools.browse import (
     add_library,
@@ -23,6 +27,47 @@ from .tools.organize import (
 )
 from .tools.search import search_samples, search_samples_by_bpm
 
+# How long the warm-up task waits before it starts the heavy import, so the
+# transport gets a clear head start on answering the client's `initialize`
+# handshake first. See _audio_warmup_lifespan for the full reasoning.
+_HANDSHAKE_HEAD_START_SECONDS = 0.5
+
+
+@asynccontextmanager
+async def _audio_warmup_lifespan(_app: FastMCP) -> AsyncIterator[dict]:
+    """Warm the audio stack AFTER the transport starts, not before it.
+
+    Entering this context manager must NOT wait for the import: it schedules
+    the warm-up as a task in its own task group and yields immediately, so
+    the caller (the MCP server's request loop) starts reading stdio and can
+    answer `initialize` right away. If we blocked here instead, a slow cold
+    import would delay `initialize` itself -- and a real customer hit
+    exactly that: on a from-scratch venv on old/slow hardware the import ran
+    past Claude Desktop's own connect-handshake timeout (~60s) and Claude
+    gave up before the server ever answered, showing "could not attach to
+    MCP server" with no obvious recovery step.
+
+    The warm-up still runs on the MAIN thread (no daemon thread, no GIL
+    contention with the idle event loop -- that was the earlier, separately
+    diagnosed and fixed bug: a background thread starves for the GIL while
+    the loop is parked and can stall for minutes). It's the same single
+    event-loop thread that answers `initialize`; the short head-start sleep
+    just gives the request loop a turn to run first. Once the import starts
+    it does monopolize that thread until it finishes (it has no internal
+    await points), so any request arriving mid-import queues briefly --
+    `initialize` is what has a tight client-side timeout, so getting that
+    one out first is what matters. Pro tool calls that land before the
+    import is done still hit the existing audio_warming_message() gate.
+    """
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_warm_up_after_handshake)
+        yield {}
+
+
+async def _warm_up_after_handshake() -> None:
+    await anyio.sleep(_HANDSHAKE_HEAD_START_SECONDS)
+    warm_audio_stack()
+
 
 def create_server(config: Config | None = None) -> FastMCP:
     """Create and configure the FastMCP server with all tools.
@@ -39,6 +84,7 @@ def create_server(config: Config | None = None) -> FastMCP:
 
     mcp = FastMCP(
         "digr",
+        lifespan=_audio_warmup_lifespan,
         instructions=(
             "MCP server for searching, analyzing, and organizing audio sample libraries.\n\n"
             "SETUP:\n"

@@ -36,6 +36,85 @@ class TestServerCreation:
         mcp = create_server(config)
         assert mcp is not None
 
+    def test_create_server_does_not_warm_audio_stack_itself(self):
+        """create_server() must only WIRE UP the warm-up (via the FastMCP
+        lifespan) -- it must not run the heavy numpy/scipy/soundfile import
+        itself. Running it inline here would put us back to blocking the
+        caller (and, in production, the MCP `initialize` handshake) on the
+        cold import, which is the exact bug this design avoids: a customer
+        on old/slow hardware hit a cold import slow enough that Claude
+        Desktop's own connect timeout fired first, and Claude gave up before
+        the server ever answered `initialize` ("could not attach to MCP
+        server")."""
+        shared._audio_ready.clear()
+
+        create_server(Config())
+
+        assert not shared._audio_ready.is_set()
+
+    @pytest.mark.asyncio
+    async def test_lifespan_warms_audio_stack_without_delaying_the_handshake(self):
+        """_audio_warmup_lifespan must let its caller (the MCP request loop,
+        which answers `initialize`) proceed immediately, THEN warm the audio
+        stack -- on the MAIN thread, so no background-thread GIL contention
+        with the idle event loop (the separately diagnosed and fixed cause of
+        the earlier minutes-long stalls)."""
+        from digr.server import _audio_warmup_lifespan
+
+        shared._audio_ready.clear()
+        mcp = create_server(Config())
+
+        async with _audio_warmup_lifespan(mcp):
+            # Entering must not itself wait for the import -- this is what
+            # lets `initialize` get answered even if the import takes minutes.
+            assert not shared._audio_ready.is_set()
+
+        # Exiting waits for the scheduled warm-up task, so by here it's done.
+        assert shared._audio_ready.is_set()
+
+    def test_warm_audio_stack_sets_ready_flag(self):
+        """warm_audio_stack must flag readiness so the tool gate can open."""
+        shared._audio_ready.clear()
+        shared.warm_audio_stack()
+        assert shared._audio_ready.is_set()
+
+
+class TestAudioWarmupGate:
+    """The 'still warming up' gate keeps a cold first Pro call from blocking
+    past Claude's 240s tool-call timeout: it returns a fast note until the
+    background import has finished. It's a single instant check -- never a
+    wait -- because an in-process wait can stall on the GIL while the warm-up
+    thread is mid-import, silently degrading into the exact hang it prevents."""
+
+    def test_message_is_none_once_ready(self):
+        shared._audio_ready.set()
+        assert shared.audio_warming_message() is None
+
+    def test_message_prompts_retry_while_cold(self):
+        shared._audio_ready.clear()
+        try:
+            msg = shared.audio_warming_message()
+            assert msg is not None
+            assert "warming up" in msg.lower()
+            assert "do not" in msg.lower()  # must steer off the restart footgun
+        finally:
+            shared._audio_ready.set()  # restore for later tests
+
+    @pytest.mark.asyncio
+    async def test_bpm_search_short_circuits_while_cold(self, mock_libraries, pro_license):
+        """While the audio stack is cold, search_samples_by_bpm returns the
+        warming note WITHOUT running the heavy per-file analysis loop."""
+        from digr.tools.search import search_samples_by_bpm
+
+        shared._audio_ready.clear()
+        try:
+            result = await search_samples_by_bpm("kick", max_results=10)
+            assert "warming up" in result.lower()
+            # It bailed out before caching any results.
+            assert get_last_search_results() == []
+        finally:
+            shared._audio_ready.set()  # restore for later tests
+
 
 class TestSearchThenCollectWorkflow:
     """Integration: search_samples -> collect_search_results (most common workflow)."""
@@ -67,6 +146,7 @@ class TestSearchThenCollectWorkflow:
         await search_samples("kick", max_results=5)
         dest = str(tmp_path / "collected")
         result = await collect_search_results("1", dest, confirm=True)
+        assert "Copied 1/1" in result
         assert (tmp_path / "collected").exists()
 
     @pytest.mark.asyncio
@@ -90,6 +170,7 @@ class TestCollectSamplesWorkflow:
 
         # Execute
         result = await collect_samples("kick", dest, max_results=5, confirm=True)
+        assert "Copied" in result
         assert (tmp_path / "dest").exists()
 
 

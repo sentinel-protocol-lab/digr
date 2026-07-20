@@ -276,6 +276,15 @@ class TestRequireProGating:
         assert "license.key" in result
         assert "DIGR_LICENSE_KEY" in result
 
+    def test_message_shows_this_platforms_key_path(self):
+        # The manual-setup path must be the REAL location for this OS
+        # (e.g. %APPDATA%\digr on Windows), not a hardcoded Mac path.
+        from digr.platform_detect import default_config_dir
+
+        set_license_key(None)
+        result = require_pro("read_midi")
+        assert str(default_config_dir() / "license.key") in result
+
     def test_message_offers_paste_activation(self):
         # The gate should nudge the frictionless path: paste the key, no restart.
         set_license_key(None)

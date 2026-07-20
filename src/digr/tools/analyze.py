@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mido
 
-from ._shared import identify_library, require_pro
+from ._shared import audio_warming_message, identify_library, require_pro
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -48,6 +48,12 @@ async def analyze_sample(filepath: str) -> str:
     if gate:
         return gate
 
+    # If the heavy audio stack is still cold-loading in the background, return a
+    # fast note instead of blocking past Claude's 240s tool-call timeout.
+    warming = audio_warming_message()
+    if warming:
+        return warming
+
     audio, np = _require_audio()
 
     file_path = Path(filepath)
@@ -83,7 +89,7 @@ async def analyze_sample(filepath: str) -> str:
 
         result = f"Analysis of: {file_path.name}\n\n"
         if duration < 3.0 and tempo > 0.0:
-            result += f"BPM: N/A (sample too short for reliable tempo detection)\n"
+            result += "BPM: N/A (sample too short for reliable tempo detection)\n"
         elif tempo_confidence < 0.3 and tempo > 0.0:
             result += f"BPM: {tempo:.1f} (low confidence — weak rhythmic content)\n"
         else:
@@ -219,7 +225,7 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
     notes_str = "\n".join(ppal_notes)
 
     result += f"Suggested clip length: {clip_length}\n\n"
-    result += f"Notes (bar|beat format):\n\n"
+    result += "Notes (bar|beat format):\n\n"
     result += notes_str
     result += "\n"
 

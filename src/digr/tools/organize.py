@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Union
 
 from ._shared import (
+    audio_warming_message,
     copy_or_move,
     get_last_search_results,
     get_libraries,
@@ -249,6 +250,12 @@ async def rename_with_metadata(
         gate = require_pro("rename_with_metadata")
         if gate:
             return gate
+
+        # If the heavy audio stack is still cold-loading in the background,
+        # return a fast note instead of blocking past Claude's 240s timeout.
+        warming = audio_warming_message()
+        if warming:
+            return warming
 
     audio_engine = None
     np = None

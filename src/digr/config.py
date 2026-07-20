@@ -5,6 +5,7 @@ Priority (highest wins): CLI args > env vars > config file > auto-detection
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -86,30 +87,44 @@ def load_config(
 
 
 def _load_config_file(path: Path) -> dict[str, Path]:
-    """Load library paths from a YAML or JSON config file."""
+    """Load library paths from a YAML or JSON config file.
+
+    A file that can't be read or parsed (e.g. hand-edited into invalid YAML)
+    must never crash server startup — the server still runs with auto-detected
+    libraries, and a warning goes to stderr (visible in the MCP client's log;
+    stdout is reserved for the MCP protocol).
+    """
     try:
         import yaml
     except ImportError:
         yaml = None
 
-    content = path.read_text(encoding="utf-8")
-    suffix = path.suffix.lower()
+    try:
+        content = path.read_text(encoding="utf-8")
+        suffix = path.suffix.lower()
 
-    if suffix in (".yaml", ".yml"):
-        if yaml is None:
-            return {}
-        data = yaml.safe_load(content)
-    elif suffix == ".json":
-        data = json.loads(content)
-    else:
-        # Try YAML first, then JSON
-        if yaml is not None:
-            try:
-                data = yaml.safe_load(content)
-            except Exception:
-                data = json.loads(content)
-        else:
+        if suffix in (".yaml", ".yml"):
+            if yaml is None:
+                return {}
+            data = yaml.safe_load(content)
+        elif suffix == ".json":
             data = json.loads(content)
+        else:
+            # Try YAML first, then JSON
+            if yaml is not None:
+                try:
+                    data = yaml.safe_load(content)
+                except Exception:
+                    data = json.loads(content)
+            else:
+                data = json.loads(content)
+    except Exception as error:
+        print(
+            f"Warning: could not read config file {path} ({error}); "
+            f"continuing with auto-detected libraries.",
+            file=sys.stderr,
+        )
+        return {}
 
     if not isinstance(data, dict):
         return {}

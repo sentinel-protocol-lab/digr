@@ -208,6 +208,17 @@ Prefer to set it up by hand? Use either:
 - **File**: `~/.config/digr/license.key`
 - **Environment**: `DIGR_LICENSE_KEY=your-key-here`
 
+### Notes
+
+- **Digr loads its audio engine in the background when it starts.** This
+  usually takes a few seconds — on Windows the installer pre-loads the engine
+  during installation, so even the very first launch starts warm. On an older
+  machine, or one busy with something heavy (an OS update installing, say), a
+  load can occasionally take a few minutes, and requests sent during it may
+  wait or time out. If that happens, wait a minute or two and ask again —
+  don't restart Claude or Digr, as a restart begins the load over. Once
+  loaded, everything is fast for the rest of the session.
+
 ## Development
 
 ```bash

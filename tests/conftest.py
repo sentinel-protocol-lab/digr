@@ -1,10 +1,24 @@
 """Shared test fixtures."""
 
 import pytest
-from pathlib import Path
 
 from digr.config import Config
+from digr.tools import _shared
 from digr.tools._shared import set_libraries
+
+
+@pytest.fixture(autouse=True)
+def _audio_stack_ready():
+    """Treat the audio stack as warmed by default so Pro audio tools run their
+    real logic in tests.
+
+    The background warm-up (and the "still warming up" gate it feeds) only runs
+    in a live server; in tests numpy/scipy are already importable, so we mark it
+    ready before each test. Tests that exercise the cold-window gate clear this
+    themselves.
+    """
+    _shared._audio_ready.set()
+    yield
 
 
 @pytest.fixture

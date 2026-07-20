@@ -2,7 +2,7 @@
 
 import pytest
 
-from digr.tools.search import search_samples
+from digr.tools.search import search_samples, search_samples_by_bpm
 from digr.tools._shared import get_last_search_results
 
 
@@ -48,7 +48,10 @@ async def test_search_balanced_across_libraries(mock_libraries):
 async def test_search_respects_max_results(mock_libraries):
     result = await search_samples("kick", max_results=2)
     # Count numbered results (lines starting with a digit followed by .)
-    lines = [l for l in result.split("\n") if l.strip() and l.strip()[0].isdigit() and ". " in l]
+    lines = [
+        line for line in result.split("\n")
+        if line.strip() and line.strip()[0].isdigit() and ". " in line
+    ]
     assert len(lines) <= 2
 
 
@@ -57,6 +60,26 @@ async def test_search_matches_folder_names(mock_libraries):
     """Keywords should match against folder names, not just filenames."""
     result = await search_samples("Snares", max_results=10)
     assert "snare_tight.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_search_caches_results(mock_libraries, pro_license):
+    """collect_search_results must work after a BPM search, not read a stale cache."""
+    await search_samples_by_bpm("kick", max_results=10)
+    cached = get_last_search_results()
+    assert len(cached) > 0
+    assert all("kick" in path.lower() for path, _ in cached)
+
+
+@pytest.mark.asyncio
+async def test_bpm_search_replaces_stale_keyword_cache(mock_libraries, pro_license):
+    """A BPM search after a keyword search must overwrite the older results —
+    otherwise 'collect number 2' would silently copy a file from the old search."""
+    await search_samples("snare", max_results=10)
+    await search_samples_by_bpm("kick", max_results=10)
+    cached = get_last_search_results()
+    assert len(cached) > 0
+    assert all("snare" not in path.lower() for path, _ in cached)
 
 
 @pytest.mark.asyncio
