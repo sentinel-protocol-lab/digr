@@ -57,5 +57,5 @@ jobs:
             install.bat
             install.ps1
             install-mac.command
-          draft: false
+          draft: true
           prerelease: false

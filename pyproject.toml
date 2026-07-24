@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "digr"
-version = "1.0.1"
+version = "1.1.0"
 description = "Search, organize, and analyze your audio sample library using natural language. Works with any DAW."
 license = "BUSL-1.1"
 requires-python = ">=3.11"
