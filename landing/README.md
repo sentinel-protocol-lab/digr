@@ -8,6 +8,7 @@ at `sentinelprotocol.co.uk` (Cloudflare Worker `digr-landing`, static assets).
 | `index.html` | Landing page |
 | `privacy-policy.html` | `/privacy-policy` |
 | `terms-and-conditions.html` | `/terms-and-conditions` |
+| `og-card.png` | `/og-card.png` — link-preview image (not a page) |
 
 ## Rules
 
@@ -28,6 +29,13 @@ Manual, from this folder (there is no GitHub→Cloudflare auto-deploy yet):
 Cloudflare dashboard → Workers & Pages → `digr-landing` → upload these files,
 or `wrangler deploy` if a wrangler config is set up. Verify after deploying:
 the live page's md5 must match `md5 index.html` here.
+
+**Upload `og-card.png` too, not just the HTML.** `index.html` points its
+`og:image` / `twitter:image` tags at the absolute URL
+`https://sentinelprotocol.co.uk/og-card.png`. If the PNG is missing from the
+deploy, every shared link renders with a broken or blank preview card, and the
+failure is invisible from the page itself. After deploying, confirm
+`curl -sI https://sentinelprotocol.co.uk/og-card.png` returns `200`.
 
 The legal docx masters live outside the repo (Ibi's iCloud); these HTML pages
 were generated from the 23/24-Jun masters with the date set at publication.
