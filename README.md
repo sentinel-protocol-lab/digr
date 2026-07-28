@@ -198,7 +198,7 @@ If no config is provided, the server auto-detects common sample locations:
 | `sort_samples` | Sort into categorized subfolders | Pro |
 
 **Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
-**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr)**
+**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr/pro)**
 
 Once you have your key, the easiest way to activate is to **paste it to your AI
 assistant** and ask it to activate Digr Pro — the `activate_license` tool saves
