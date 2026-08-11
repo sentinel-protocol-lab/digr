@@ -16,6 +16,8 @@ test_env*/
 # IDE
 .vscode/
 .idea/
+# Claude Code (local tooling, not part of the product)
+.claude/
 *.swp
 *.swo
 

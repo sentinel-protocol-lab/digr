@@ -1,5 +1,5 @@
 # Digr
-**AI-powered search, analysis, and organization for your sample library.**
+**Natural-language search, analysis, and organization for your sample library.**
 
 Search your samples by describing what you want.
 
@@ -10,10 +10,10 @@ Digr connects your AI assistant to your audio files.
 It searches across all your sample folders, detects BPM and key,
 and helps you organise thousands of files without manual browsing.
 
-Works with Claude Desktop, Claude Code, Cursor, VS Code, and any
-MCP-compatible client. Mac and Windows. Any DAW or no DAW at all.
+Everything runs locally: nothing is uploaded, and nothing is used to train AI.
 
-Free for personal use · [License (BSL 1.1)](LICENSE)
+Works with Claude Desktop and any MCP-compatible client.
+Mac and Windows. Any DAW or no DAW at all.
 
 ## Model Recommendations
 
@@ -30,24 +30,11 @@ vary with model capability:
 
 ### Claude Desktop — MCPB (Recommended)
 
-Download `digr-1.0.0.mcpb` from [Releases](https://github.com/sentinel-protocol-lab/digr/releases), then:
+Download the latest `.mcpb` file from [Releases](https://github.com/sentinel-protocol-lab/digr/releases), then:
 
 1. Open Claude Desktop → **Settings** → **Extensions**
 2. Click **Install Extension** and select the `.mcpb` file
 3. Done — Claude handles everything automatically
-
-### Upgrading from a Previous Version
-
-Claude Desktop installs extensions side-by-side — a new `.mcpb` does **not** overwrite the old one. To upgrade:
-
-1. Open Claude Desktop → **Settings** → **Extensions**
-2. Find "Digr" → click **Remove**
-3. Delete the leftover data folder:
-   - **Mac**: `~/Library/Application Support/Digr/`
-   - **Windows**: `%APPDATA%\Digr\`
-4. Install the new `.mcpb` file as normal (step 2 above)
-
-This ensures all old code and cached data is fully replaced.
 
 ### Windows — One-Click Installer
 
@@ -63,118 +50,24 @@ Download `install-mac.command` from [Releases](https://github.com/sentinel-proto
 
 Installs `uv`, registers the server in Claude Desktop, and restarts it automatically.
 
-### PyPI (pip / uvx)
-
-```bash
-# Basic (search, browse, organize, MIDI reading)
-pip install digr
-
-# Full (adds BPM/key detection)
-pip install digr[audio]
-
-# Or run directly with uvx
-uvx digr
-uvx --with 'digr[audio]' digr
-```
-
-### Docker
-
-```bash
-docker run -p 8000:8000 \
-  -v /path/to/samples:/samples:ro \
-  -e DIGR_LIBRARIES='{"Samples": "/samples"}' \
-  digr \
-  --transport streamable-http --host 0.0.0.0
-```
-
-## Client Configuration
-
-### Claude Desktop / Claude Code (stdio)
-
-```json
-{
-  "mcpServers": {
-    "digr": {
-      "command": "uvx",
-      "args": ["--with", "digr[audio]", "digr"]
-    }
-  }
-}
-```
-
-### With config file
-
-```json
-{
-  "mcpServers": {
-    "digr": {
-      "command": "uvx",
-      "args": [
-        "--with", "digr[audio]",
-        "digr",
-        "--config", "/path/to/config.yaml"
-      ]
-    }
-  }
-}
-```
-
-### Cursor / VS Code / OpenAI Codex (Streamable HTTP)
-
-Start the server:
-```bash
-digr --transport streamable-http --port 8000
-```
-
-Connect in your client:
-```json
-{
-  "mcpServers": {
-    "digr": {
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
-
 ## Configuration
 
-Libraries are configured via a layered system (highest priority wins):
+**Most people don't need to set anything up.** When Digr starts, it
+automatically finds common sample locations — your Splice downloads, any Ableton
+libraries, and folders named "Samples" on your external drives.
 
-### 1. CLI Arguments
+On a different DAW, or keep your samples elsewhere? Just add the folder (below) —
+Digr works with any sample collection, whatever made it.
 
-```bash
-digr --library "My Samples=/path/to/samples" --library "Packs=/path/to/packs"
-```
+### Adding your own folders
 
-### 2. Environment Variables
+To add a folder Digr didn't find, copy its location from Finder (Mac) or File
+Explorer (Windows), paste it into the chat, and ask your assistant to add it:
 
-```bash
-# JSON object
-export DIGR_LIBRARIES='{"My Samples": "/path/to/samples", "Packs": "/path/to/packs"}'
+> "Add my samples folder at /Users/me/Music/Samples"
 
-# Or individual paths
-export DIGR_LIBRARY_1="/path/to/samples"
-export DIGR_LIBRARY_1_NAME="My Samples"
-```
-
-### 3. Config File
-
-Default location: `~/.config/digr/config.yaml`
-
-```yaml
-libraries:
-  "My Samples": "/path/to/samples"
-  "Ableton Packs": "/path/to/packs"
-  "Core Library": "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/Core Library/Samples"
-```
-
-### 4. Auto-Detection
-
-If no config is provided, the server auto-detects common sample locations:
-- **macOS**: Ableton Core Library, ~/Music/Ableton/User Library, Splice, external volumes
-- **Windows**: Program Files/Ableton, Documents/Ableton, Splice, D:/E:/F: drives
-- **Linux**: ~/Ableton, Splice, /mnt/*/Samples, /media/*/Samples
+Digr saves it, and it's available in every session from then on — no files to
+edit. Remove one the same way: "remove the Packs library."
 
 ## Tools
 
@@ -198,15 +91,11 @@ If no config is provided, the server auto-detects common sample locations:
 | `sort_samples` | Sort into categorized subfolders | Pro |
 
 **Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
-**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr)**
+**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr/pro)**
 
-Once you have your key, the easiest way to activate is to **paste it to your AI
-assistant** and ask it to activate Digr Pro — the `activate_license` tool saves
-the key for you and unlocks Pro immediately, with no restart.
-
-Prefer to set it up by hand? Use either:
-- **File**: `~/.config/digr/license.key`
-- **Environment**: `DIGR_LICENSE_KEY=your-key-here`
+Once you have your key, activate it by **pasting it to your AI assistant** and
+asking it to activate Digr Pro — the `activate_license` tool saves the key for
+you and unlocks Pro immediately, with no restart.
 
 ### Notes
 
@@ -219,17 +108,8 @@ Prefer to set it up by hand? Use either:
   don't restart Claude or Digr, as a restart begins the load over. Once
   loaded, everything is fast for the rest of the session.
 
-## Development
-
-```bash
-git clone https://github.com/sentinel-protocol-lab/digr
-cd digr
-pip install -e ".[audio,dev]"
-pytest
-```
-
 ## License
 
-Business Source License 1.1 — see [LICENSE](LICENSE) for details.
+Business Source License 1.1 — see the [full terms](LICENSE) for details.
 
 Free for production use. You may not use this software to offer a competing commercial sample library management product or service. Converts to Apache 2.0 on 2029-03-19.
