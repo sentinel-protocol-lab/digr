@@ -165,6 +165,7 @@ nav.site-nav a.gh svg{width:16px;height:16px;}
 .tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.04em;padding:4px 9px;border-radius:6px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;}
 .tag.bpm{color:var(--amber);border-color:rgba(212,138,26,0.3);}
 .tag.key{color:var(--cyan);border-color:rgba(46,182,255,0.3);}
+.res .name .fpre{display:none;}  /* ".../" mobile marker — hidden on desktop; shown only at <=520px */
 
 /* ============================================================
    SECTION SCAFFOLD
@@ -263,6 +264,12 @@ footer.site .f-meta .lic{color:var(--muted);}
   .search-bar .go{display:none;}
   .prod-lock .digr{font-size:28px;}
   .tier .t-badge{position:static;display:inline-block;margin-top:14px;}
+  /* demo rows: drop the folder path, show ".../filename" so the badges never clip the card edge */
+  .res{min-width:0;}  /* let the grid row shrink below the unbreakable filename's min-content */
+  .res .name{display:flex;align-items:baseline;}
+  .res .name .fpre{display:inline;flex:none;color:var(--muted-2);}
+  .res .name .fdir{display:none;}
+  .res .name .fname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 }
 
 /* reduced motion */
@@ -344,17 +351,17 @@ footer.site .f-meta .lic{color:var(--muted);}
           <div class="res-head"><span>Found in your library</span><span class="count">3 matches</span></div>
           <div class="res">
             <div class="wave"><i style="height:40%"></i><i style="height:70%"></i><i style="height:100%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:35%"></i></div>
-            <div class="name">~/Samples/Pads/atmos_drift_Cmin.wav</div>
+            <div class="name"><span class="fpre">.../</span><span class="fdir">~/Samples/Pads/</span><span class="fname">atmos_drift_Cmin.wav</span></div>
             <div class="tags"><span class="tag bpm">124 BPM</span><span class="tag key">C min</span></div>
           </div>
           <div class="res">
             <div class="wave"><i style="height:60%"></i><i style="height:90%"></i><i style="height:45%"></i><i style="height:100%"></i><i style="height:30%"></i><i style="height:65%"></i></div>
-            <div class="name">~/Library/Textures/granular_haze_02.wav</div>
+            <div class="name"><span class="fpre">.../</span><span class="fdir">~/Library/Textures/</span><span class="fname">granular_haze_02.wav</span></div>
             <div class="tags"><span class="tag bpm">90 BPM</span><span class="tag key">A min</span></div>
           </div>
           <div class="res">
             <div class="wave"><i style="height:35%"></i><i style="height:55%"></i><i style="height:85%"></i><i style="height:50%"></i><i style="height:95%"></i><i style="height:40%"></i></div>
-            <div class="name">~/Packs/Ambient/deep_swell_long.wav</div>
+            <div class="name"><span class="fpre">.../</span><span class="fdir">~/Packs/Ambient/</span><span class="fname">deep_swell_long.wav</span></div>
             <div class="tags"><span class="tag bpm">—</span><span class="tag key">D min</span></div>
           </div>
         </div>
