@@ -48,21 +48,16 @@ th,td{border:1px solid var(--line);padding:11px 13px;text-align:left;vertical-al
 th{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);background:var(--off);}
 td.yn{font-family:'JetBrains Mono',monospace;white-space:nowrap;}
 .tbl-scroll{overflow-x:auto;}
-footer.site{border-top:1px solid var(--line);padding:40px 0 56px;}
-footer.site .f-links{display:flex;gap:22px;flex-wrap:wrap;}
-footer.site .f-links a{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);}
-footer.site .f-links a:hover{color:var(--paper);border-bottom:none;}
-footer.site .f-meta{margin-top:26px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted-2);line-height:1.7;}
+/* footer styles now in shared /assets/footer.css */
 @media (max-width:520px){ main{padding:44px 0 64px;} h2{font-size:19px;} }
 </style>
+<link rel="stylesheet" href="assets/footer.css">
 </head>
 <body>
 <header class="site">
   <div class="wrap">
     <a class="brand-lock" href="/" aria-label="Sentinel Protocol home">
-      <svg class="mark" viewBox="0 0 240 240" aria-hidden="true">
-<rect x="9" y="9" width="62" height="62" rx="14" fill="#D48A1A"/><rect x="89" y="9" width="62" height="62" rx="14" fill="#1F1C18"/><rect x="169" y="9" width="62" height="62" rx="14" fill="#1F1C18"/><rect x="9" y="89" width="62" height="62" rx="14" fill="#D48A1A"/><rect x="89" y="89" width="62" height="62" rx="14" fill="#D48A1A"/><rect x="169" y="89" width="62" height="62" rx="14" fill="#1F1C18"/><rect x="9" y="169" width="62" height="62" rx="14" fill="#D48A1A"/><rect x="89" y="169" width="62" height="62" rx="14" fill="#D48A1A"/><rect x="169" y="169" width="62" height="62" rx="14" fill="#2EB6FF"/>
-</svg>
+      <img class="mark" src="assets/sp-mark.svg" alt="" width="28" height="28">
       <span class="wm"><span class="s1">Sentinel</span> <span class="s2">Protocol</span></span>
     </a>
     <nav>
@@ -218,13 +213,23 @@ footer.site .f-meta{margin-top:26px;font-family:'JetBrains Mono',monospace;font-
 </main>
 <footer class="site">
   <div class="wrap">
-    <div class="f-links">
-      <a href="/">Home</a>
-      <a href="/privacy-policy">Privacy Policy</a>
-      <a href="/terms-and-conditions">Terms &amp; Conditions</a>
-      <a href="/contact">Contact</a>
+    <div class="f-top">
+      <a class="f-brand" href="/" aria-label="Sentinel Protocol">
+        <img class="mark" src="assets/sp-mark.svg" alt="" width="30" height="30">
+        <span class="wm"><span class="s1">Sentinel</span> <span class="s2">Protocol</span></span>
+      </a>
+      <div class="f-links">
+        <a href="/">Home</a>
+        <a href="https://github.com/sentinel-protocol-lab/digr" target="_blank" rel="noopener">GitHub</a>
+        <a href="/privacy-policy">Privacy Policy</a>
+        <a href="/terms-and-conditions">Terms &amp; Conditions</a>
+        <a href="/contact">Contact</a>
+      </div>
     </div>
-    <p class="f-meta">Built by Sentinel Protocol Ltd &middot; Company No. 17108983<br>&copy; 2026 Sentinel Protocol Ltd</p>
+    <div class="f-meta">
+      <p>Built by Sentinel Protocol Ltd &middot; Company No. 17108983<br><span class="lic">Licensed under BSL 1.1 &mdash; free for personal use.</span></p>
+      <p>&copy; 2026 Sentinel Protocol Ltd</p>
+    </div>
   </div>
 </footer>
 </body>
