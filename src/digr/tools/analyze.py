@@ -81,9 +81,11 @@ async def analyze_sample(filepath: str) -> str:
         detected_key = keys[key_idx]
         confidence = audio.key_confidence(chroma)
 
-        # Get duration
-        duration = audio.get_duration(y, sr=sr)
-
+        #Read the file's true sample rate and duration from its header - not
+        # the analysis buffer (resampled to 22050 Hz and capped at 30s).
+        native_sr = audio.get_native_samplerate(str(file_path))
+        duration = audio.get_native_duration(str(file_path)) 
+        
         # Determine which library this sample is from
         library_name = identify_library(file_path)
 
@@ -99,7 +101,7 @@ async def analyze_sample(filepath: str) -> str:
         else:
             result += f"Key: {detected_key} (estimated)\n"
         result += f"Duration: {duration:.1f} seconds\n"
-        result += f"Sample Rate: {sr} Hz\n"
+        result += f"Sample Rate: {native_sr} Hz\n"
         result += f"Library: {library_name}\n"
         result += f"Path: {filepath}\n"
 
