@@ -197,3 +197,32 @@ class TestProGatingInWorkflow:
         result = await sort_samples("wav", dest, confirm=False)
         assert "PREVIEW" in result
         assert "Kicks" in result
+
+
+class TestAnalyzeSampleReportsNativeMetadata:
+    """analyze_sample must report the file's TRUE sample rate and duration,
+    read from the header -- not the internal analysis buffer, which is always
+    resampled to 22050 Hz and capped at the first 30 seconds. Regression guard
+    for the bug where both fields reflected the analysis buffer, not the asset."""
+
+    @pytest.mark.asyncio
+    async def test_reports_native_rate_and_duration_not_analysis_buffer(self, tmp_path, pro_license):
+        import numpy as np
+        import soundfile as sf
+
+        from digr.tools.analyze import analyze_sample
+
+        # 48 kHz AND longer than the 30s cap, so BOTH fields would be wrong
+        # (22050 Hz / 30.0s) if they were read from the analysis buffer.
+        wav = tmp_path / "native_48k_32s.wav"
+        sr_native = 48000
+        seconds = 32.0
+        t = np.linspace(0, seconds, int(sr_native * seconds), endpoint=False)
+        tone = (0.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        sf.write(str(wav), tone, sr_native)
+
+        result = await analyze_sample(str(wav))
+
+        assert "Sample Rate: 48000 Hz" in result # true rate, not 22050
+        assert "22050 Hz" not in result          # the old, wrong value
+        assert "Duration: 32.0 seconds" in result # true length, not capped at 30

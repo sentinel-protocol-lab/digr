@@ -69,6 +69,19 @@ def load_audio(
     return data, sr
 
 
+def get_native_samplerate(path: str) -> int:
+    """Read the file's true sample rate from its header, without decoding audio.
+    
+    Unlike load_audio (which resamples to a fixed analysis rate), this reports the sample rate the file actually recorded at - e.g. 44100 or 48000."""
+    return int(sf.info(path).samplerate)
+
+def get_native_duration(path: str) -> float:
+    """Read the file"s true length in seconds from its header, without decoding.
+    
+    Load audio only reads the first 30s for speed, so the loaded audio understates long files. This reports the file's real duration."""
+    return float(sf.info(path).duration)
+
+
 # ---------------------------------------------------------------------------
 # Mel filterbank (for onset strength computation)
 # ---------------------------------------------------------------------------
