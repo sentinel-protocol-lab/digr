@@ -39,6 +39,7 @@ license_keys.json
 # Dev-only scripts (not part of the distributed product)
 generate_meeting_pdf.py
 benchmark_audio.py
+scripts/check_activations.py
 _librosa_backup/
 
 # Dev/planning notes
