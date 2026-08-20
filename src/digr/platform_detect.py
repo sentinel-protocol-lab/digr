@@ -130,7 +130,18 @@ def auto_detect_libraries() -> dict[str, Path]:
 
 
 def default_config_dir() -> Path:
-    """Return the default config directory for the current OS."""
+    """Return the config directory for the current OS.
+
+    An explicit ``DIGR_CONFIG_DIR`` override wins on every platform. It lets a
+    user pin a custom config location, and — critically — it is the single seam
+    the test suite uses to redirect ALL config writes (config.yaml, license.key,
+    license.token) into a temp dir, so tests can never clobber a real user's
+    library list. See tests/conftest.py::_isolate_config_dir.
+    """
+    override = os.environ.get("DIGR_CONFIG_DIR")
+    if override:
+        return Path(override)
+
     system = platform.system()
     if system == "Windows":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))

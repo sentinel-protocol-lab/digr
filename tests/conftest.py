@@ -8,6 +8,35 @@ from digr.tools._shared import set_libraries
 
 
 @pytest.fixture(autouse=True)
+def _isolate_config_dir(tmp_path_factory, monkeypatch):
+    """Redirect every config/license write into a throwaway temp dir.
+
+    Digr persists libraries to ``~/.config/digr/config.yaml`` (and the licence
+    key/token alongside). Without isolation, any test that calls ``add_library``
+    writes to the developer's REAL config and clobbers their live library list
+    (this actually happened — see fix-test-config-isolation). ``DIGR_CONFIG_DIR``
+    overrides the config dir on all platforms, so pointing it at a fresh temp
+    dir guarantees no test can ever touch the real one.
+    """
+    cfg = tmp_path_factory.mktemp("digr_config")
+    monkeypatch.setenv("DIGR_CONFIG_DIR", str(cfg))
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_libraries():
+    """Clear the in-memory library store around each test.
+
+    The store is a module-level dict; without a reset it leaks between tests, so
+    a save triggered by one test would persist libraries a previous test left
+    behind. Combined with _isolate_config_dir, this keeps every test hermetic.
+    """
+    set_libraries({})
+    yield
+    set_libraries({})
+
+
+@pytest.fixture(autouse=True)
 def _audio_stack_ready():
     """Treat the audio stack as warmed by default so Pro audio tools run their
     real logic in tests.
