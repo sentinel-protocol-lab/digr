@@ -1,5 +1,7 @@
 """Tests for browse tools."""
 
+from pathlib import Path
+
 import pytest
 
 from digr.tools.browse import (
@@ -113,3 +115,29 @@ async def test_add_library_count_excludes_macos_junk(tmp_path):
 
     result = await add_library("Junk", str(tmp_path))
     assert "Audio files found: 1" in result
+
+
+@pytest.mark.asyncio
+async def test_add_library_never_writes_real_user_config(tmp_path):
+    """Regression guard for the config-clobber bug.
+
+    Running the suite once overwrote the developer's real
+    ~/.config/digr/config.yaml with pytest temp libraries. The autouse
+    _isolate_config_dir fixture must redirect the write; this asserts that the
+    saved entry lands in the isolated dir and NEVER in the real user config.
+    """
+    from digr.platform_detect import default_config_dir, default_config_path
+
+    real_dir = Path.home() / ".config" / "digr"
+    # Isolation must be active: the config dir under test is not the real one.
+    assert default_config_dir() != real_dir
+
+    lib = tmp_path / "Lib"
+    lib.mkdir()
+    (lib / "kick.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    await add_library("RegressionLib", str(lib))
+
+    # The write landed in the isolated config, not the developer's real one.
+    assert "RegressionLib" in default_config_path().read_text()
+    real_config = real_dir / "config.yaml"
+    assert not real_config.exists() or "RegressionLib" not in real_config.read_text()
