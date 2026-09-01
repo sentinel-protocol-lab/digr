@@ -83,6 +83,110 @@ async def test_bpm_search_replaces_stale_keyword_cache(mock_libraries, pro_licen
 
 
 @pytest.mark.asyncio
+async def test_search_plural_finds_singular(vocabulary_library):
+    """'breaks' used to miss every file called '..._break.wav'."""
+    result = await search_samples("breaks", max_results=20)
+    assert "amen_break.wav" in result
+    assert "TSP_NOISIA_174_dnb_break.wav" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("spelling", ["hihat", "hi-hat", "hat", "hats", "hh"])
+async def test_search_hihat_spellings(vocabulary_library, spelling):
+    result = await search_samples(spelling, max_results=20)
+    assert "hi-hat_closed_01.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_perc_and_percussion_agree(vocabulary_library):
+    """The abbreviation finds the folder; the full word finds the filename."""
+    abbreviated = await search_samples("perc", max_results=20)
+    spelled_out = await search_samples("percussion", max_results=20)
+    assert "shaker_soft.wav" in abbreviated
+    assert "perc_rattle_01.wav" in abbreviated
+    assert "perc_rattle_01.wav" in spelled_out
+
+
+@pytest.mark.asyncio
+async def test_search_bpm_token_in_filename(vocabulary_library):
+    """'174' has to find '_174_', which packs write far more often than
+    '174bpm'."""
+    result = await search_samples("174", max_results=20)
+    assert "TSP_NOISIA_174_dnb_break.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_bpm_word_is_grammar_not_a_requirement(vocabulary_library):
+    """'174 bpm' must not exclude files that only write '_174_'."""
+    result = await search_samples("174 bpm", max_results=20)
+    assert "TSP_NOISIA_174_dnb_break.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_loop_does_not_match_the_loopmasters_folder(vocabulary_library):
+    """A pack folder must not answer for every file inside it."""
+    result = await search_samples("loop", max_results=20)
+    assert "E808_Loop_BD_01.wav" in result
+    assert "TSP_NOISIA_174_dnb_break.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_search_kick_finds_bd_labelled_packs(vocabulary_library):
+    """MusicRadar/SampleRadar label kicks 'BD' -- a real vocabulary gap."""
+    result = await search_samples("kick", max_results=20)
+    assert "E808_Loop_BD_01.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_kick_does_not_resurrect_substring_false_positives(
+    vocabulary_library,
+):
+    """The exact files the substring approach was rejected over."""
+    result = await search_samples("kick", max_results=20)
+    assert "Abduction_FX.wav" not in result
+    assert "Seabed_pad.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_search_substring_fallback_inside_a_filename(vocabulary_library):
+    result = await search_samples("verb", max_results=20)
+    assert "Big_Reverb_Tail.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_search_ranks_filename_hits_above_folder_hits(vocabulary_library):
+    result = await search_samples("break", max_results=20)
+    assert result.index("amen_break.wav") < result.index("dusty_hit.wav")
+
+
+@pytest.mark.asyncio
+async def test_search_mid_no_longer_returns_wav_files(vocabulary_library):
+    """The reported bug: '.mid' matched a folder called '...WAV.MiDi.SERUM...'
+    and returned .wav files. Type search itself still works."""
+    result = await search_samples(".mid", max_results=20)
+    assert "DnB Break 04.mid" in result
+    assert "DSS_Bass_38_Am.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_search_partial_match_reports_what_it_dropped(vocabulary_library):
+    """No file is named 'dark', so the query would have been a dead end."""
+    result = await search_samples("dark 174 break", max_results=20)
+    assert "No exact match" in result
+    assert "'dark'" in result
+    assert "TSP_NOISIA_174_dnb_break.wav" in result
+
+
+@pytest.mark.asyncio
+async def test_partial_match_results_are_collectable(vocabulary_library):
+    """Partial results are shown numbered, so they must be cached like any
+    other search or 'collect number 1' would act on a stale list."""
+    await search_samples("dark 174 break", max_results=20)
+    cached = get_last_search_results()
+    assert any("dnb_break" in path for path, _ in cached)
+
+
+@pytest.mark.asyncio
 async def test_search_excludes_macos_junk(macos_junk_library):
     """AppleDouble sidecars and __MACOSX contents must never surface as samples."""
     result = await search_samples("bass loop", max_results=50)

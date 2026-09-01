@@ -5,7 +5,10 @@ import shutil
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
+
+from ._query import file_tokens, match_query, parse_query, rank_key
 
 # Supported audio and MIDI file extensions
 AUDIO_EXTENSIONS = ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.flac", "*.ogg"]
@@ -283,12 +286,6 @@ def require_pro(tool_name: str) -> str | None:
     return "\n\n".join(parts)
 
 
-def match_keywords(path_str: str, keywords: list[str]) -> bool:
-    """Check if all keywords appear anywhere in the path (case-insensitive)."""
-    path_lower = path_str.lower()
-    return all(kw in path_lower for kw in keywords)
-
-
 def is_junk_path(file_path: Path) -> bool:
     """True for macOS metadata litter that only looks like a sample.
 
@@ -303,41 +300,36 @@ def is_junk_path(file_path: Path) -> bool:
     return "__MACOSX" in file_path.parts
 
 
-def search_all_libraries(
-    keyword: str, max_results: int, per_library_cap: int | None = None
+@dataclass
+class SearchOutcome:
+    """Results of one search, plus what to say when nothing matched fully.
+
+    ``partial`` is the Stage 8 fallback: when no file satisfied every term we
+    return the files that satisfied the largest subset, and name which term
+    was dropped, instead of a dead end.
+    """
+
+    matches: list[tuple[str, str]]
+    partial: bool = False
+    matched_terms: tuple[str, ...] = ()
+    missing_terms: tuple[str, ...] = ()
+    partial_total: int = 0
+
+
+# Ceiling on partial candidates held in memory while no full match has been
+# seen. Only ever read when the search finds nothing at all.
+_PARTIAL_POOL_CAP = 2000
+
+
+def _rank_paths(scored: list[tuple[float, str]]) -> list[str]:
+    """Order one library's hits: best score, then shorter path, then A-Z."""
+    return [path for _, path in sorted(scored, key=lambda s: rank_key(s[0], s[1]))]
+
+
+def _balance_across_libraries(
+    library_matches: dict[str, list[str]], max_results: int
 ) -> list[tuple[str, str]]:
-    """Search all libraries and return balanced results as (path, library_name) tuples."""
-    keywords = keyword.lower().split()
-    if per_library_cap is None:
-        per_library_cap = max(max_results, 50)
-
-    library_matches: dict[str, list[str]] = {}
-    for library_name, library in _libraries.items():
-        if not library.exists():
-            continue
-
-        lib_results: list[str] = []
-        for extension in ALL_EXTENSIONS:
-            try:
-                for file_path in library.rglob(extension):
-                    if is_junk_path(file_path):
-                        continue
-                    if match_keywords(str(file_path), keywords):
-                        lib_results.append(str(file_path))
-                        if len(lib_results) >= per_library_cap:
-                            break
-            except (PermissionError, OSError):
-                continue
-            if len(lib_results) >= per_library_cap:
-                break
-
-        if lib_results:
-            library_matches[library_name] = lib_results
-
-    if not library_matches:
-        return []
-
-    # Distribute results evenly across libraries, then fill remainder
+    """Distribute results evenly across libraries, then fill the remainder."""
     num_libs = len(library_matches)
     per_lib = max(1, max_results // num_libs)
     matches: list[tuple[str, str]] = []
@@ -356,6 +348,119 @@ def search_all_libraries(
                 remaining -= 1
 
     return matches
+
+
+def search_libraries(
+    keyword: str,
+    max_results: int,
+    per_library_cap: int | None = None,
+    allow_partial: bool = False,
+) -> SearchOutcome:
+    """Search all libraries with the plain-English engine (see ``_query``).
+
+    ``allow_partial`` is opt-in and only the search tools set it. The organise
+    tools share this engine but COPY AND MOVE files, so quietly widening a
+    keyword there would act on files the user never asked for.
+    """
+    spec = parse_query(keyword)
+    if not spec.terms:
+        return SearchOutcome(matches=[])
+
+    if per_library_cap is None:
+        per_library_cap = max(max_results, 50)
+
+    library_matches: dict[str, list[str]] = {}
+    partial_pool: list[tuple[frozenset[int], float, str, str]] = []
+    found_full = False
+
+    for library_name, library in _libraries.items():
+        if not library.exists():
+            continue
+
+        scored: list[tuple[float, str]] = []
+        folder_cache: dict = {}
+        for extension in ALL_EXTENSIONS:
+            try:
+                for file_path in library.rglob(extension):
+                    if is_junk_path(file_path):
+                        continue
+                    bag = file_tokens(
+                        file_path, root=library, folder_cache=folder_cache
+                    )
+                    result = match_query(spec, bag)
+                    if result.matched:
+                        found_full = True
+                        scored.append((result.score, str(file_path)))
+                        if len(scored) >= per_library_cap:
+                            break
+                    elif (
+                        allow_partial
+                        and not found_full
+                        and result.matched_terms
+                        and len(partial_pool) < _PARTIAL_POOL_CAP
+                    ):
+                        partial_pool.append(
+                            (
+                                result.matched_terms,
+                                result.score,
+                                str(file_path),
+                                library_name,
+                            )
+                        )
+            except (PermissionError, OSError):
+                continue
+            if len(scored) >= per_library_cap:
+                break
+
+        if scored:
+            library_matches[library_name] = _rank_paths(scored)
+
+    if library_matches:
+        return SearchOutcome(
+            matches=_balance_across_libraries(library_matches, max_results)
+        )
+
+    if not partial_pool:
+        return SearchOutcome(matches=[])
+
+    # Stage 8: group the near-misses by exactly which terms they satisfied,
+    # and show the biggest, best subset -- "matched 174 + break but not dark".
+    groups: dict[frozenset[int], list[tuple[float, str, str]]] = {}
+    for terms, score, path, lib_name in partial_pool:
+        groups.setdefault(terms, []).append((score, path, lib_name))
+
+    best_terms, best_files = max(
+        groups.items(),
+        key=lambda item: (
+            len(item[0]),
+            len(item[1]),
+            sum(score for score, _, _ in item[1]),
+        ),
+    )
+
+    by_library: dict[str, list[tuple[float, str]]] = {}
+    for score, path, lib_name in best_files:
+        by_library.setdefault(lib_name, []).append((score, path))
+
+    return SearchOutcome(
+        matches=_balance_across_libraries(
+            {lib: _rank_paths(items) for lib, items in by_library.items()},
+            max_results,
+        ),
+        partial=True,
+        matched_terms=tuple(spec.terms[i].text for i in sorted(best_terms)),
+        missing_terms=tuple(
+            term.text for i, term in enumerate(spec.terms) if i not in best_terms
+        ),
+        partial_total=len(best_files),
+    )
+
+
+def search_all_libraries(
+    keyword: str, max_results: int, per_library_cap: int | None = None
+) -> list[tuple[str, str]]:
+    """Search all libraries and return balanced results as (path, library_name) tuples."""
+    return search_libraries(keyword, max_results, per_library_cap).matches
 
 
 def parse_filepaths(filepaths) -> list[str]:

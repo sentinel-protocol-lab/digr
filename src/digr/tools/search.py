@@ -6,6 +6,7 @@ from ._shared import (
     audio_warming_message,
     require_pro,
     search_all_libraries,
+    search_libraries,
     set_last_search_results,
 )
 
@@ -31,7 +32,8 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
     Multiple keywords are matched independently (all must appear).
     Results are balanced across libraries.
     """
-    matches = search_all_libraries(keyword, max_results)
+    outcome = search_libraries(keyword, max_results, allow_partial=True)
+    matches = outcome.matches
 
     if not matches:
         set_last_search_results([])
@@ -44,7 +46,21 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
     # Cache results for collect_search_results
     set_last_search_results(matches)
 
-    result = f"Found samples matching '{keyword}' (showing {len(matches)}):\n\n"
+    if outcome.partial:
+        # Nothing satisfied every word. Say which words DID land and show
+        # those files, rather than returning a dead end.
+        matched = " + ".join(f"'{t}'" for t in outcome.matched_terms)
+        missing = " or ".join(f"'{t}'" for t in outcome.missing_terms)
+        count = outcome.partial_total
+        noun = "file" if count == 1 else "files"
+        result = (
+            f"No exact match for '{keyword}'. "
+            f"{count} {noun} matched {matched} but not {missing} "
+            f"— showing those (top {len(matches)}):\n\n"
+        )
+    else:
+        result = f"Found samples matching '{keyword}' (showing {len(matches)}):\n\n"
+
     for i, (path, library_name) in enumerate(matches, 1):
         filename = Path(path).name
         folder = Path(path).parent.name
