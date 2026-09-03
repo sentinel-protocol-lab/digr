@@ -6,12 +6,16 @@ cross-platform compatibility. The algorithms are ported from librosa's approach
 to maintain equivalent accuracy without the numba/llvmlite dependency chain.
 """
 
-import re
 from math import gcd
 
 import numpy as np
 import soundfile as sf
 from scipy.signal import resample_poly, stft as scipy_stft
+
+# extract_bpm_from_filename lives in _query because it is pure stdlib and the
+# FREE search path needs it -- importing this module would drag in
+# numpy/scipy/soundfile. Re-exported here so existing callers are unaffected.
+from ._query import extract_bpm_from_filename
 
 
 # ---------------------------------------------------------------------------
@@ -353,41 +357,6 @@ def detect_tempo_with_hint(
             return hint_bpm, min(tempo_confidence, 0.25)
 
     return detected, tempo_confidence
-
-
-def extract_bpm_from_filename(filename: str) -> float | None:
-    """Extract BPM value from a filename if present.
-
-    Matches patterns like "170 bpm", "117BPM", "170_bpm", "bpm_170",
-    "BPM 117", and leading-number formats like "120-BreakName".
-    Returns None if no BPM pattern is found.
-    """
-    if not filename:
-        return None
-
-    # Strip extension for cleaner matching
-    name = re.sub(r'\.[^.]+$', '', filename)
-
-    # Pattern 1: number followed by "bpm" (with optional separator)
-    match = re.search(r'(\d{2,3})\s*[-_]?\s*bpm', name, re.IGNORECASE)
-    if match:
-        return float(match.group(1))
-
-    # Pattern 2: "bpm" followed by number
-    match = re.search(r'bpm\s*[-_]?\s*(\d{2,3})', name, re.IGNORECASE)
-    if match:
-        return float(match.group(1))
-
-    # Pattern 3: leading number followed by separator then text
-    # e.g. "120-GitterBreak", "140_HouseLoop", "170 DnB Roller"
-    # Only match if the number is in plausible BPM range (60-300)
-    match = re.match(r'^(\d{2,3})[-_\s]', name)
-    if match:
-        bpm = float(match.group(1))
-        if 60 <= bpm <= 300:
-            return bpm
-
-    return None
 
 
 # ---------------------------------------------------------------------------

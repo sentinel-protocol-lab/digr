@@ -116,6 +116,51 @@ def macos_junk_library(tmp_path_factory):
 
 
 @pytest.fixture
+def vocabulary_library(tmp_path_factory):
+    """A library named the way real packs are named.
+
+    Every file here exists to pin one behaviour of the plain-English engine,
+    and several are lifted straight from real reports: the Loopmasters pack
+    folder that "loop" used to match, the MusicRadar kick labelled BD, and the
+    two files ("Abduction", "Seabed") that a substring bd->kick rule would
+    wrongly resurrect.
+    """
+    lib = tmp_path_factory.mktemp("vocabulary_library")
+
+    files = [
+        # Pack folder that must NOT be matched by "loop"...
+        "Loopmasters/Drum Hits/TSP_NOISIA_174_dnb_break.wav",
+        # ...while a file with "Loop" in its NAME still is. Also the
+        # MusicRadar-style kick labelled BD.
+        "MusicRadar/E808_Loop_BD_01.wav",
+        # Plural/singular, and folder-only vs filename ranking.
+        "Breaks/Old Skool/amen_break.wav",
+        "Breaks/dusty_hit.wav",
+        # Spelling variants of the same instrument.
+        "Drums/HiHats/hi-hat_closed_01.wav",
+        # Abbreviation in the filename, full word in the folder.
+        "Drums/Percussion/shaker_soft.wav",
+        "Drums/Loose/perc_rattle_01.wav",
+        # These two must never come back for "kick".
+        "FX/Abduction_FX.wav",
+        "Pads/Seabed_pad.wav",
+        # Substring fallback inside a filename token.
+        "FX/Big_Reverb_Tail.wav",
+        # The reported '.mid returns .wav files' pack folder, alongside a real
+        # MIDI file that a type search should still find.
+        "Ghosthack.Platinum.Bundle.2019.WAV.MiDi.SERUM.PRESETS/DSS_Bass_38_Am.wav",
+        "Midi Files/Drum Breaks/DnB Break 04.mid",
+    ]
+    for relative in files:
+        path = lib / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"Vocabulary Library": lib})
+    return lib
+
+
+@pytest.fixture
 def mock_libraries(sample_dir, second_library):
     """Set up mock libraries and return the config."""
     libraries = {
