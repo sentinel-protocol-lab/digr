@@ -244,6 +244,112 @@ class TestBpmFilter:
         assert _texts(spec) == ["shaker", "170-178"]
 
 
+# ---------------------------------------------------------------------------
+# Detection-discovery of unlabelled files (Phase 2 #3b)
+# ---------------------------------------------------------------------------
+
+
+def _match_ranged(
+    path: str,
+    target: BpmTarget,
+    allow_unlabelled: bool,
+    keyword: str = "",
+    root: str = "/lib",
+):
+    spec = with_bpm_filter(parse_query(keyword), target, allow_unlabelled=allow_unlabelled)
+    return match_query(spec, file_tokens(path, root=Path(root)))
+
+
+class TestUnlabelledDiscovery:
+    """Phase 2 #3b: files with NO tempo marker of their own become detection
+    CANDIDATES, never confirmed matches, and only when opted in."""
+
+    def test_name_numbers_is_filename_only(self):
+        """A folder like 'House 124' must not silently exclude every file
+        inside it from candidacy -- only a marker the FILE ITSELF carries."""
+        bag = file_tokens("/lib/House 124/shaker.wav", root=Path("/lib"))
+        assert 124 in bag.numbers          # still counts for #3a's inclusion
+        assert 124 not in bag.name_numbers  # must not drive #3b's exclusion
+
+    def test_candidate_term_matches_a_no_number_file(self):
+        result = _match_ranged(
+            "/lib/amen_chop.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert result.matched
+
+    def test_candidate_term_does_not_match_without_opting_in(self):
+        """The default (#3a-only) behaviour: an unlabelled file must not
+        surface as a match at all."""
+        result = _match_ranged(
+            "/lib/amen_chop.wav", BpmTarget(170.0, 178.0), allow_unlabelled=False
+        )
+        assert not result.matched
+
+    def test_labelled_out_of_range_is_excluded_even_when_unlabelled_is_allowed(self):
+        """A file with a real, out-of-range NUMBER label must be skipped --
+        trusting the label -- not offered as a detection candidate."""
+        result = _match_ranged(
+            "/lib/loop_124_house.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert not result.matched
+
+    def test_bpm_hint_out_of_range_is_excluded_too(self):
+        """A real 'bpm' word label outside the range must also be skipped,
+        not treated as unlabelled."""
+        result = _match_ranged(
+            "/lib/track_80bpm.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert not result.matched
+
+    def test_labelled_in_range_still_matches_when_unlabelled_is_allowed(self):
+        result = _match_ranged(
+            "/lib/loop_172_shaker.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert result.matched
+
+    def test_labelled_hits_outrank_unlabelled_candidates(self):
+        """The relaxed match scores below every real tier, so a labelled
+        (certain) hit must always rank ahead of an unlabelled candidate."""
+        labelled = _match_ranged(
+            "/lib/TSP_172_shaker.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        candidate = _match_ranged(
+            "/lib/amen_chop.wav", BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert labelled.matched and candidate.matched
+        assert labelled.score > candidate.score
+
+    def test_with_bpm_filter_replaces_typed_range_term_when_allow_unlabelled(self):
+        """The trap: a typed range already produces a STRICT range term via
+        parse_query. allow_unlabelled=True must REPLACE it with the relaxed
+        version, or unlabelled discovery would silently never fire on a
+        typed range -- only on the explicit min_bpm/max_bpm path."""
+        spec = with_bpm_filter(
+            parse_query("shaker 170-178"), BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert _texts(spec) == ["shaker", "170-178"]
+        term = next(t for t in spec.terms if t.text == "170-178")
+        assert term.allow_unlabelled is True
+
+    def test_with_bpm_filter_default_is_still_a_no_op_on_duplicate(self):
+        """Existing #3a behaviour, unchanged: without allow_unlabelled, a
+        duplicate typed range is still a no-op, not a replacement."""
+        spec = with_bpm_filter(parse_query("shaker 170-178"), BpmTarget(170.0, 178.0))
+        assert _texts(spec) == ["shaker", "170-178"]
+        term = next(t for t in spec.terms if t.text == "170-178")
+        assert term.allow_unlabelled is False
+
+    def test_with_bpm_filter_appends_relaxed_term_when_none_exists(self):
+        """The explicit-only case: no typed range, so the relaxed term is
+        simply appended."""
+        spec = with_bpm_filter(
+            parse_query("shaker"), BpmTarget(170.0, 178.0), allow_unlabelled=True
+        )
+        assert _texts(spec) == ["shaker", "170-178"]
+        term = next(t for t in spec.terms if t.text == "170-178")
+        assert term.allow_unlabelled is True
+
+
 class TestExtractBpmFromFilename:
     def test_patterns(self):
         assert extract_bpm_from_filename("Break_170bpm.wav") == 170.0

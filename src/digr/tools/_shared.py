@@ -356,21 +356,24 @@ def search_libraries(
     per_library_cap: int | None = None,
     allow_partial: bool = False,
     bpm_filter: BpmTarget | None = None,
+    allow_unlabelled: bool = False,
 ) -> SearchOutcome:
     """Search all libraries with the plain-English engine (see ``_query``).
 
     ``allow_partial`` is opt-in and only the search tools set it. ``bpm_filter``
-    is opt-in and set ONLY by ``search_samples_by_bpm`` -- it folds an explicit
-    min/max range into matching as one more required term, via the same
-    constructor a typed range uses (``_query.with_bpm_filter``), so the two
-    paths can never behave differently. The organise tools share this engine
-    but COPY AND MOVE files, so neither opt-in flag may ever reach them --
-    quietly filtering or widening what they act on would touch files the user
-    never asked for.
+    is opt-in and set ONLY by ``search_samples_by_bpm`` -- it folds a tempo
+    range into matching as one more required term, via the same constructor a
+    typed range uses (``_query.with_bpm_filter``), so the two paths can never
+    behave differently. ``allow_unlabelled`` (Phase 2 #3b) additionally admits
+    files with no tempo marker of their own as detection CANDIDATES, and is
+    likewise set ONLY by ``search_samples_by_bpm``. The organise tools share
+    this engine but COPY AND MOVE files, so neither opt-in flag may ever reach
+    them -- quietly filtering or widening what they act on would touch files
+    the user never asked for.
     """
     spec = parse_query(keyword)
     if bpm_filter is not None:
-        spec = with_bpm_filter(spec, bpm_filter)
+        spec = with_bpm_filter(spec, bpm_filter, allow_unlabelled=allow_unlabelled)
     if not spec.terms:
         return SearchOutcome(matches=[])
 
@@ -469,10 +472,15 @@ def search_all_libraries(
     max_results: int,
     per_library_cap: int | None = None,
     bpm_filter: BpmTarget | None = None,
+    allow_unlabelled: bool = False,
 ) -> list[tuple[str, str]]:
     """Search all libraries and return balanced results as (path, library_name) tuples."""
     return search_libraries(
-        keyword, max_results, per_library_cap, bpm_filter=bpm_filter
+        keyword,
+        max_results,
+        per_library_cap,
+        bpm_filter=bpm_filter,
+        allow_unlabelled=allow_unlabelled,
     ).matches
 
 
