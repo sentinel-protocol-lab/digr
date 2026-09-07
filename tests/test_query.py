@@ -10,10 +10,12 @@ from digr.tools._query import (
     file_tokens,
     match_query,
     parse_query,
+    range_term,
     rank_key,
     stem,
     tokenize,
     weak_expansions,
+    with_bpm_filter,
 )
 
 
@@ -212,6 +214,34 @@ class TestParseQuery:
 
     def test_empty_query(self):
         assert parse_query("   ").terms == ()
+
+
+class TestBpmFilter:
+    """range_term / with_bpm_filter -- an explicit min/max param must behave
+    identically to typing the same range into the keyword."""
+
+    def test_range_term_matches_typed_range(self):
+        """An explicit filter and a typed range must build the SAME term,
+        or the two paths could match differently."""
+        typed = parse_query("170-178").terms[0]
+        explicit = range_term(BpmTarget(170.0, 178.0))
+        assert typed == explicit
+
+    def test_range_term_exact_target_has_no_dash(self):
+        assert range_term(BpmTarget(174.0, 174.0)).text == "174"
+
+    def test_with_bpm_filter_adds_required_term(self):
+        spec = with_bpm_filter(parse_query("shaker"), BpmTarget(170.0, 178.0))
+        assert _texts(spec) == ["shaker", "170-178"]
+        assert BpmTarget(170.0, 178.0) in spec.bpm_targets
+
+    def test_with_bpm_filter_does_not_duplicate_a_typed_range(self):
+        """"shaker 170-178" plus an equal explicit filter must stay ONE
+        required term, not AND two identical copies together."""
+        spec = with_bpm_filter(
+            parse_query("shaker 170-178"), BpmTarget(170.0, 178.0)
+        )
+        assert _texts(spec) == ["shaker", "170-178"]
 
 
 class TestExtractBpmFromFilename:

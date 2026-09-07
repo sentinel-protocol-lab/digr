@@ -2,7 +2,7 @@
 
 import pytest
 
-from digr.tools.search import search_samples, search_samples_by_bpm
+from digr.tools.search import _format_bpm_line, search_samples, search_samples_by_bpm
 from digr.tools._shared import get_last_search_results
 
 
@@ -197,3 +197,131 @@ async def test_search_excludes_macos_junk(macos_junk_library):
     # Nothing inside __MACOSX surfaces — even a non-dotfile.
     assert "__MACOSX" not in result
     assert "Bass Loop 99.wav" not in result
+
+
+# ---------------------------------------------------------------------------
+# search_samples_by_bpm -- tempo-range filtering (Phase 2 #3a)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_explicit_params_filter(bpm_range_library, pro_license):
+    """min_bpm/max_bpm must reach the shakers labelled only by a bare number
+    ("_172_", no literal "bpm" word) and exclude the one outside the range."""
+    result = await search_samples_by_bpm("shaker", min_bpm=170, max_bpm=178)
+    assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" in result
+    assert "TSP_NOISIA_174_shaker_hats.wav" in result
+    assert "TSP_NOISIA_200_shaker.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_keyword_filter_matches_explicit_params(
+    bpm_range_library, pro_license
+):
+    """A range typed straight into the keyword must filter identically to
+    passing the same range as min_bpm/max_bpm."""
+    result = await search_samples_by_bpm("shaker 170-178")
+    assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" in result
+    assert "TSP_NOISIA_200_shaker.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_min_only(bpm_range_library, pro_license):
+    result = await search_samples_by_bpm("shaker", min_bpm=180)
+    assert "TSP_NOISIA_200_shaker.wav" in result
+    assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_max_only(bpm_range_library, pro_license):
+    result = await search_samples_by_bpm("shaker", max_bpm=175)
+    assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" in result
+    assert "TSP_NOISIA_174_shaker_hats.wav" in result
+    assert "TSP_NOISIA_200_shaker.wav" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_shown_in_header(bpm_range_library, pro_license):
+    result = await search_samples_by_bpm("shaker", min_bpm=170, max_bpm=178)
+    assert "170-178 BPM" in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_no_range_header_unchanged(mock_libraries, pro_license):
+    """Without any range (params or keyword), the header carries no range
+    note -- existing callers see no behaviour change."""
+    result = await search_samples_by_bpm("kick", max_results=10)
+    first_line = result.split("\n")[0]
+    assert "BPM)" not in first_line
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_no_matches_names_the_range(bpm_range_library, pro_license):
+    result = await search_samples_by_bpm("shaker", min_bpm=250, max_bpm=260)
+    assert "170-178" not in result  # sanity: not just echoing an old range
+    assert "250-260 BPM" in result
+    assert "No samples found" in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_one_shot_real_audio(tmp_path, pro_license):
+    """End-to-end with REAL decoded audio: a short in-range-labelled sample
+    must filter in, decode, and be reported honestly as a one-shot rather
+    than given a junk tempo. Closes the wiring gap the fake-bytes tests can't
+    reach (they fail to decode and hit the exception branch instead)."""
+    import numpy as np
+    import soundfile as sf
+
+    from digr.tools._shared import set_libraries
+
+    lib = tmp_path / "OneShots"
+    lib.mkdir()
+    # ~1s of quiet noise, named with a bare in-range number and no "bpm" word.
+    sr = 22050
+    audio = (np.random.default_rng(0).standard_normal(sr) * 0.01).astype("float32")
+    sf.write(str(lib / "shaker_172.wav"), audio, sr)
+
+    set_libraries({"One Shots": tmp_path})
+
+    result = await search_samples_by_bpm("shaker", min_bpm=170, max_bpm=178)
+
+    assert "shaker_172.wav" in result
+    assert "labelled 172 — one-shot, no tempo detected" in result
+
+
+class TestFormatBpmLine:
+    """The one-shot-honesty / labelled-primary decision, in isolation --
+    no audio decoding needed since this is pure display logic."""
+
+    def test_one_shot_no_label(self):
+        assert _format_bpm_line(tempo=287.0, duration=0.8, label=None) == (
+            "one-shot — no tempo"
+        )
+
+    def test_one_shot_with_label(self):
+        assert _format_bpm_line(tempo=287.0, duration=0.8, label=172.0) == (
+            "labelled 172 — one-shot, no tempo detected"
+        )
+
+    def test_silence_treated_as_one_shot_even_if_long(self):
+        """tempo == 0.0 means detect_tempo found no rhythm at all, regardless
+        of how long the file is."""
+        assert _format_bpm_line(tempo=0.0, duration=30.0, label=None) == (
+            "one-shot — no tempo"
+        )
+
+    def test_label_confirmed_by_close_detection(self):
+        assert _format_bpm_line(tempo=172.3, duration=8.0, label=172.0) == (
+            "172 (confirmed by detection: 172.3)"
+        )
+
+    def test_label_trusted_over_disagreeing_detection(self):
+        """Producers don't mislabel BPM -- a detection that lands far from
+        the label is flagged, but the label still wins."""
+        assert _format_bpm_line(tempo=156.6, duration=8.0, label=172.0) == (
+            "172 (labelled) — detected 156.6, trusting the label"
+        )
+
+    def test_no_label_falls_back_to_raw_detection(self):
+        """No-range mode: behaves exactly as before this feature existed."""
+        assert _format_bpm_line(tempo=117.5, duration=8.0, label=None) == "117.5"
