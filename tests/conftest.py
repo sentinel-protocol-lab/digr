@@ -161,6 +161,28 @@ def vocabulary_library(tmp_path_factory):
 
 
 @pytest.fixture
+def bpm_range_library(tmp_path_factory):
+    """Shakers labelled only by a bare number in their filename, like
+    "..._172_...", with no literal "bpm" word alongside it -- exactly what
+    the engine's loose number-token path exists to catch, and what a strict
+    BPM-in-filename check would miss.
+    """
+    lib = tmp_path_factory.mktemp("bpm_range_library")
+    files = [
+        "Shakers/TSP_NOISIA_172_drum_loop_shakerloopedit.wav",
+        "Shakers/TSP_NOISIA_174_shaker_hats.wav",
+        "Shakers/TSP_NOISIA_200_shaker.wav",
+    ]
+    for relative in files:
+        path = lib / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"BPM Range Library": lib})
+    return lib
+
+
+@pytest.fixture
 def mock_libraries(sample_dir, second_library):
     """Set up mock libraries and return the config."""
     libraries = {

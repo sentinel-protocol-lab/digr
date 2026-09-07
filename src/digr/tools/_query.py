@@ -292,6 +292,48 @@ def _make_term(text: str, bpm: BpmTarget | None = None) -> QueryTerm:
     )
 
 
+def range_term(target: BpmTarget) -> QueryTerm:
+    """Build the synthetic AND-term for a tempo range or exact target.
+
+    A range TYPED into a query ("170-178") and an explicit min/max filter
+    passed to a search tool must produce the IDENTICAL term, or the two paths
+    could match differently -- a divergence that stays invisible until a user
+    hits it. So both go through here. The term carries no word vocabulary
+    (empty stem/aliases), so it is satisfied ONLY via its ``bpm``: an in-range
+    filename hint or number. That loose number path is deliberate -- it is what
+    catches bare "_174_" labels that the strict ``extract_bpm_from_filename``
+    misses (no literal "bpm" token, number not leading).
+    """
+    low, high = int(target.low), int(target.high)
+    text = f"{low}-{high}" if target.is_range else f"{low}"
+    return QueryTerm(
+        text=text,
+        stem="",
+        aliases=frozenset(),
+        weak_aliases=frozenset(),
+        bpm=target,
+    )
+
+
+def with_bpm_filter(spec: QuerySpec, target: BpmTarget) -> QuerySpec:
+    """Fold an explicit min/max range into an already-parsed spec.
+
+    Adds ``target`` as one more required (AND) term, via the same
+    ``range_term`` constructor a typed range uses, so calling a tool with
+    ``min_bpm=170, max_bpm=178`` behaves identically to typing "170-178" in
+    the keyword. A no-op if the keyword already parsed an equal target, so
+    "shaker 170-178" called with that same explicit range doesn't end up
+    AND-ing two copies of it together.
+    """
+    if target in spec.bpm_targets:
+        return spec
+    return QuerySpec(
+        raw=spec.raw,
+        terms=spec.terms + (range_term(target),),
+        bpm_targets=spec.bpm_targets + (target,),
+    )
+
+
 def _collapse_compounds(tokens: list[str]) -> list[str]:
     """Fuse an adjacent pair ONLY when the fusion is known vocabulary.
 
@@ -331,16 +373,9 @@ def parse_query(raw: str) -> QuerySpec:
         target = BpmTarget(low, high)
         targets.append(target)
         # A range is consumed whole: leaving "170" and "178" behind would AND
-        # them together and match nothing.
-        range_terms.append(
-            QueryTerm(
-                text=f"{int(low)}-{int(high)}",
-                stem="",
-                aliases=frozenset(),
-                weak_aliases=frozenset(),
-                bpm=target,
-            )
-        )
+        # them together and match nothing. Same constructor as an explicit
+        # min/max filter (see range_term).
+        range_terms.append(range_term(target))
         return " "
 
     text = _RANGE_RE.sub(_take_range, text)

@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._query import file_tokens, match_query, parse_query, rank_key
+from ._query import BpmTarget, file_tokens, match_query, parse_query, rank_key, with_bpm_filter
 
 # Supported audio and MIDI file extensions
 AUDIO_EXTENSIONS = ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.flac", "*.ogg"]
@@ -355,14 +355,22 @@ def search_libraries(
     max_results: int,
     per_library_cap: int | None = None,
     allow_partial: bool = False,
+    bpm_filter: BpmTarget | None = None,
 ) -> SearchOutcome:
     """Search all libraries with the plain-English engine (see ``_query``).
 
-    ``allow_partial`` is opt-in and only the search tools set it. The organise
-    tools share this engine but COPY AND MOVE files, so quietly widening a
-    keyword there would act on files the user never asked for.
+    ``allow_partial`` is opt-in and only the search tools set it. ``bpm_filter``
+    is opt-in and set ONLY by ``search_samples_by_bpm`` -- it folds an explicit
+    min/max range into matching as one more required term, via the same
+    constructor a typed range uses (``_query.with_bpm_filter``), so the two
+    paths can never behave differently. The organise tools share this engine
+    but COPY AND MOVE files, so neither opt-in flag may ever reach them --
+    quietly filtering or widening what they act on would touch files the user
+    never asked for.
     """
     spec = parse_query(keyword)
+    if bpm_filter is not None:
+        spec = with_bpm_filter(spec, bpm_filter)
     if not spec.terms:
         return SearchOutcome(matches=[])
 
@@ -457,10 +465,15 @@ def search_libraries(
 
 
 def search_all_libraries(
-    keyword: str, max_results: int, per_library_cap: int | None = None
+    keyword: str,
+    max_results: int,
+    per_library_cap: int | None = None,
+    bpm_filter: BpmTarget | None = None,
 ) -> list[tuple[str, str]]:
     """Search all libraries and return balanced results as (path, library_name) tuples."""
-    return search_libraries(keyword, max_results, per_library_cap).matches
+    return search_libraries(
+        keyword, max_results, per_library_cap, bpm_filter=bpm_filter
+    ).matches
 
 
 def parse_filepaths(filepaths) -> list[str]:
