@@ -273,6 +273,12 @@ class QueryTerm:
     aliases: frozenset[str]
     weak_aliases: frozenset[str]
     bpm: "BpmTarget | None" = None
+    # Detection-discovery of unlabelled files (Phase 2 #3b). When True, a file
+    # with NO in-band tempo marker of its own (no bpm_hint, no in-band filename
+    # number) still satisfies this term -- as a CANDIDATE for the caller to run
+    # detection on, not a confirmed match. Only ever set on the synthetic BPM
+    # term search_samples_by_bpm builds; never on an ordinary word term.
+    allow_unlabelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -292,7 +298,7 @@ def _make_term(text: str, bpm: BpmTarget | None = None) -> QueryTerm:
     )
 
 
-def range_term(target: BpmTarget) -> QueryTerm:
+def range_term(target: BpmTarget, allow_unlabelled: bool = False) -> QueryTerm:
     """Build the synthetic AND-term for a tempo range or exact target.
 
     A range TYPED into a query ("170-178") and an explicit min/max filter
@@ -303,6 +309,11 @@ def range_term(target: BpmTarget) -> QueryTerm:
     filename hint or number. That loose number path is deliberate -- it is what
     catches bare "_174_" labels that the strict ``extract_bpm_from_filename``
     misses (no literal "bpm" token, number not leading).
+
+    ``allow_unlabelled`` additionally admits a file with NO in-band tempo
+    marker at all, as a detection candidate rather than a confirmed match --
+    see ``QueryTerm.allow_unlabelled`` and ``search_samples_by_bpm`` (Phase 2
+    #3b).
     """
     low, high = int(target.low), int(target.high)
     text = f"{low}-{high}" if target.is_range else f"{low}"
@@ -312,24 +323,59 @@ def range_term(target: BpmTarget) -> QueryTerm:
         aliases=frozenset(),
         weak_aliases=frozenset(),
         bpm=target,
+        allow_unlabelled=allow_unlabelled,
     )
 
 
-def with_bpm_filter(spec: QuerySpec, target: BpmTarget) -> QuerySpec:
+def _is_synthetic_range_term(term: QueryTerm, target: BpmTarget) -> bool:
+    """True for a term built by ``range_term`` (or ``parse_query``'s own
+    range/bare-digit parsing) for exactly ``target`` -- i.e. a pure BPM
+    marker with no word vocabulary of its own, as opposed to an ordinary
+    word term that merely happens to carry the same ``bpm`` side-channel.
+    """
+    return term.bpm == target and term.stem == "" and not term.aliases and not term.weak_aliases
+
+
+def with_bpm_filter(
+    spec: QuerySpec, target: BpmTarget, allow_unlabelled: bool = False
+) -> QuerySpec:
     """Fold an explicit min/max range into an already-parsed spec.
 
     Adds ``target`` as one more required (AND) term, via the same
     ``range_term`` constructor a typed range uses, so calling a tool with
     ``min_bpm=170, max_bpm=178`` behaves identically to typing "170-178" in
-    the keyword. A no-op if the keyword already parsed an equal target, so
-    "shaker 170-178" called with that same explicit range doesn't end up
-    AND-ing two copies of it together.
+    the keyword.
+
+    Without ``allow_unlabelled``, this is a no-op if the keyword already
+    parsed an equal target, so "shaker 170-178" called with that same
+    explicit range doesn't end up AND-ing two copies of it together.
+
+    With ``allow_unlabelled=True`` (Phase 2 #3b), a plain no-op is wrong: a
+    typed range like "shaker 170-178" already produced a STRICT range term
+    via ``parse_query``, and skipping would mean unlabelled discovery never
+    fires on a typed range at all -- only on the explicit-param path. So this
+    REPLACES the existing synthetic range term with the relaxed version
+    instead of skipping, and still appends one if none exists (the
+    explicit-only case).
     """
     if target in spec.bpm_targets:
-        return spec
+        if not allow_unlabelled:
+            return spec
+        relaxed = range_term(target, allow_unlabelled=True)
+        replaced = False
+        terms: list[QueryTerm] = []
+        for term in spec.terms:
+            if not replaced and _is_synthetic_range_term(term, target):
+                terms.append(relaxed)
+                replaced = True
+            else:
+                terms.append(term)
+        if not replaced:
+            terms.append(relaxed)
+        return QuerySpec(raw=spec.raw, terms=tuple(terms), bpm_targets=spec.bpm_targets)
     return QuerySpec(
         raw=spec.raw,
-        terms=spec.terms + (range_term(target),),
+        terms=spec.terms + (range_term(target, allow_unlabelled=allow_unlabelled),),
         bpm_targets=spec.bpm_targets + (target,),
     )
 
@@ -432,6 +478,11 @@ class TokenBag:
     name_stems: frozenset[str]
     folder_stems: frozenset[str]
     numbers: frozenset[int]
+    # Filename-only numbers, kept separate from ``numbers`` (folder ∪ name).
+    # Detection-discovery (Phase 2 #3b) must exclude a file from candidacy
+    # only on a marker the FILE ITSELF carries -- a folder like "Samples
+    # 192kHz" or "House 124" must not silently exclude every file inside it.
+    name_numbers: frozenset[int]
     bpm_hint: float | None
 
 
@@ -483,13 +534,15 @@ def file_tokens(
 
     name_tokens = tokenize(file_path.name)
     name = frozenset(name_tokens + compound_join(name_tokens))
+    name_numbers = _numbers_in(name)
 
     return TokenBag(
         name=name,
         folder=folder,
         name_stems=frozenset(stem(t) for t in name),
         folder_stems=folder_stems,
-        numbers=folder_numbers | _numbers_in(name),
+        numbers=folder_numbers | name_numbers,
+        name_numbers=name_numbers,
         bpm_hint=extract_bpm_from_filename(file_path.name) if want_bpm_hint else None,
     )
 
@@ -504,6 +557,10 @@ SCORE_ALIAS = 1.5
 SCORE_BPM = 1.5
 SCORE_WEAK_ALIAS = 0.75
 SCORE_SUBSTRING = 0.5
+# Below every real tier, including substring -- a labelled hit (of any kind)
+# must always outrank an unlabelled candidate awaiting detection, for free,
+# through the existing rank_key ordering. See QueryTerm.allow_unlabelled.
+SCORE_UNLABELLED_CANDIDATE = 0.1
 BONUS_ALL_IN_FILENAME = 2.0
 BONUS_BPM_HINT = 3.0
 
@@ -539,6 +596,18 @@ def _score_term(term: QueryTerm, bag: TokenBag) -> tuple[float | None, bool]:
             return SCORE_BPM, True
         if any(term.bpm.contains(n) for n in bag.numbers):
             return SCORE_BPM, False
+        # Detection-discovery candidate (Phase 2 #3b): the file carries NO
+        # in-band tempo marker of its own -- no bpm_hint, no in-band filename
+        # number -- so it is neither confirmed in-range nor confirmed
+        # out-of-range (a labelled-out-of-range file must fall through and
+        # stay unmatched, trusting its own label). "In-band" is the engine's
+        # full BPM_MIN..BPM_MAX span, not this term's narrower target range.
+        if (
+            term.allow_unlabelled
+            and bag.bpm_hint is None
+            and not any(BPM_MIN <= n <= BPM_MAX for n in bag.name_numbers)
+        ):
+            return SCORE_UNLABELLED_CANDIDATE, False
     if term.weak_aliases:
         if term.weak_aliases & bag.name_stems:
             return SCORE_WEAK_ALIAS, True

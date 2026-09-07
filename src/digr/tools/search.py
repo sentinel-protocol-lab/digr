@@ -1,6 +1,8 @@
 """Search tools: search_samples, search_samples_by_bpm."""
 
+import time
 from pathlib import Path
+from typing import NamedTuple
 
 from ._query import BPM_MAX, BPM_MIN, BpmTarget, file_tokens, parse_query
 from ._shared import (
@@ -19,8 +21,27 @@ ONE_SHOT_MAX_DURATION = 3.0
 # How far a detected tempo may drift from a filename/folder label before it
 # is shown as a disagreement rather than a confirmation. Producers don't
 # mislabel BPM, so a label is trusted either way -- this only changes the
-# wording, matching detect_tempo_with_hint's own harmonic tolerance.
+# wording, matching detect_tempo_with_hint's own harmonic tolerance. Also
+# used as the octave-tie-break tolerance for unlabelled detection (below).
 BPM_LABEL_TOLERANCE = 0.08
+
+# --- Detection-discovery of unlabelled files (Phase 2 #3b) ---
+#
+# Bounded two ways: a file-count budget (the deterministic, testable
+# behaviour) and a wall-clock deadline (a guard against a cold external
+# drive approaching Claude's 240s tool-call timeout -- decode cost measured
+# locally at ~12ms/file is not a safe basis for the budget on its own, since
+# real libraries live on external drives where I/O dominates by orders of
+# magnitude). Provisional; calibrate against real drives (digr-STATUS.md).
+DETECTION_BUDGET_FILES = 40
+DETECTION_DEADLINE_SECONDS = 25.0
+
+# How many combined labelled + unlabelled matches the walk gathers when a
+# tempo range is in play. Most word-matching files carry no tempo label at
+# all, so the per-library cap must not fill with them before enough LABELLED
+# (certain) hits are counted. Deliberately far above max_results, which still
+# bounds what's DISPLAYED and DECODED, not what's considered.
+CANDIDATE_POOL_SIZE = 300
 
 
 def _require_audio():
@@ -77,6 +98,85 @@ def _format_bpm_line(tempo: float, duration: float, label: float | None) -> str:
     return f"{tempo:.1f}"
 
 
+def _bar_grid_fits(
+    duration: float, target: BpmTarget, max_bars: int = 64
+) -> list[tuple[int, float]]:
+    """Tempos in ``target`` that make ``duration`` a whole number of 4/4 bars.
+
+    Loops are almost always a whole number of bars, and duration is readable
+    from the file HEADER with no decode -- so this orders the unlabelled
+    detection queue before any expensive work happens (Phase 2 #3b). It is
+    informative only when fewer than one whole bar-count fits inside the
+    range (measured: ~14% of random durations admit a fit at an 8-BPM-wide
+    range under 8s, vs ~96% over 20s, where the test says nothing) -- above
+    that threshold it is skipped rather than pretending. NEVER a hard gate: a
+    file with a fit is decoded first, but a loop with a reverb tail past the
+    bar line still gets its turn if detection budget remains.
+    """
+    if duration <= 0:
+        return []
+    span = target.high - target.low
+    if duration * span / 240.0 >= 1.0:
+        return []
+    fits: list[tuple[int, float]] = []
+    for bars in range(1, max_bars + 1):
+        tempo = 240.0 * bars / duration
+        if tempo > target.high:
+            break  # tempo rises monotonically with bar count
+        if tempo >= target.low:
+            fits.append((bars, round(tempo, 1)))
+    return fits
+
+
+def _admit_unlabelled(detected: float, target: BpmTarget) -> tuple[float, float] | None:
+    """Accept a raw detection if it, its double, or its half lands in range.
+
+    Half/double is a genuine disagreement between producers about how to
+    describe ONE piece of music -- trap is labelled 140 or 70 by different
+    packs, and the same goes for dubstep, footwork, and halftime sections in
+    any genre -- so accepting it recovers ambiguity that exists in the music
+    itself. 3/2 and 2/3 are deliberately NOT accepted: nobody calls a 124
+    house loop "82" -- that ratio exists only in the autocorrelation, and
+    accepting it would import the detector's own failure mode into the
+    results dressed as musical meaning. Returns (admitted_tempo, factor), or
+    None if nothing in {1x, 2x, 0.5x} lands in range.
+    """
+    for factor in (1.0, 2.0, 0.5):
+        candidate = detected * factor
+        if target.contains(candidate):
+            return candidate, factor
+    return None
+
+
+def _format_detected_line(
+    detected: float,
+    admitted: float,
+    factor: float,
+    fit: tuple[int, float] | None,
+) -> str:
+    """Compose the candidate line for one unlabelled detection.
+
+    Never asserts a tempo -- always hedged ("~", "detected", "no BPM in the
+    name") -- because confidence cannot distinguish a real loop from a
+    one-shot (a one-shot measured at 1.00 confidence, the maximum) and
+    sustained tonal content can still reach here after the duration guard.
+    Kept separate from the search loop for the same reason _format_bpm_line
+    is: the trickiest logic in the change, unit-testable with plain numbers.
+    """
+    if factor == 2.0:
+        octave_note = " at double time"
+    elif factor == 0.5:
+        octave_note = " at half time"
+    else:
+        octave_note = ""
+    line = f"~{admitted:.0f} (detected {detected:.1f}{octave_note}"
+    if fit is not None:
+        bars, _ = fit
+        line += f"; length fits {bars} bar{'s' if bars != 1 else ''} at {admitted:.0f}"
+    line += ") — no BPM in the name"
+    return line
+
+
 def _label_bpm(path: str, library_name: str, target: BpmTarget) -> float | None:
     """The in-range number that satisfied a tempo filter, for display.
 
@@ -92,6 +192,120 @@ def _label_bpm(path: str, library_name: str, target: BpmTarget) -> float | None:
         return bag.bpm_hint
     in_range = sorted(n for n in bag.numbers if target.contains(n))
     return float(in_range[0]) if in_range else None
+
+
+def _decode_and_detect(audio, path: str, filename: str) -> tuple[float, float]:
+    """Load and detect once -- returns (tempo, duration). Shared by the
+    labelled-confirmation pass and the unlabelled-detection pass so both go
+    through identical decode logic; raises on decode failure, which callers
+    handle."""
+    y, sr = audio.load_audio(path, duration=15)
+    duration = len(y) / sr
+    tempo, _ = audio.detect_tempo_with_hint(y, sr=sr, filename=filename)
+    return tempo, duration
+
+
+class _ResultRow(NamedTuple):
+    """One displayed match, either a confirmed label or a detected candidate."""
+
+    path: str
+    library_name: str
+    filename: str
+    folder: str
+    bpm_line: str
+
+
+def _render_row(index: int, row: _ResultRow) -> str:
+    return (
+        f"{index}. {row.filename}\n"
+        f"   BPM: {row.bpm_line}\n"
+        f"   Library: {row.library_name}\n"
+        f"   Folder: {row.folder}\n"
+        f"   Path: {row.path}\n\n"
+    )
+
+
+def _confirm_labelled(
+    audio, path: str, library_name: str, label: float
+) -> _ResultRow:
+    """Stage 2 (#3a): detect a labelled-in-range match only to confirm it."""
+    filename = Path(path).name
+    folder = Path(path).parent.name
+    try:
+        tempo, duration = _decode_and_detect(audio, path, filename)
+        bpm_line = _format_bpm_line(tempo, duration, label)
+    except Exception as e:
+        bpm_line = f"Unable to detect ({e})"
+    return _ResultRow(path, library_name, filename, folder, bpm_line)
+
+
+def _discover_unlabelled(
+    audio, candidates: list[tuple[str, str]], target: BpmTarget
+) -> tuple[list[_ResultRow], int]:
+    """Stages 4-6 (#3b): order by bar-grid fit (header only, no decode), then
+    decode within budget, admitting an octave-aware in-range reading.
+
+    Returns (admitted rows, considered_count). ``considered_count`` is how
+    many of ``candidates`` were actually looked at -- decoded OR rejected via
+    the duration guard or an unreadable header -- before the budget or
+    deadline stopped the pass. The caller compares it against
+    ``len(candidates)`` to report truncation honestly: a file rejected by the
+    (near-free) duration guard was still "checked", so it must not be
+    reported as lost to the (expensive) decode budget.
+    """
+    staged: list[tuple[str, str, float, list[tuple[int, float]]]] = []
+    for path, library_name in candidates:
+        try:
+            duration = audio.get_native_duration(path)
+        except Exception:
+            # Unreadable header -- folds into the duration guard below rather
+            # than a separate error path, so it is honestly "considered",
+            # not silently dropped from the count.
+            duration = 0.0
+        fits = _bar_grid_fits(duration, target) if duration > 0 else []
+        staged.append((path, library_name, duration, fits))
+    # Bar-grid-fit-first; a stable sort keeps each group's existing order
+    # (`candidates` arrives already ranked by the search engine's own score).
+    staged.sort(key=lambda c: 0 if c[3] else 1)
+
+    rows: list[_ResultRow] = []
+    decoded_count = 0
+    considered_count = 0
+    deadline = time.monotonic() + DETECTION_DEADLINE_SECONDS
+    for path, library_name, duration, fits in staged:
+        if decoded_count >= DETECTION_BUDGET_FILES or time.monotonic() >= deadline:
+            break
+        considered_count += 1
+        if duration < ONE_SHOT_MAX_DURATION:
+            # Rejected before spending any decode budget -- confidence cannot
+            # do this job (a one-shot measures as the MOST confident thing in
+            # the library), so duration is the only defence that works.
+            continue
+        filename = Path(path).name
+        try:
+            tempo, _ = _decode_and_detect(audio, path, filename)
+        except Exception:
+            decoded_count += 1
+            continue
+        decoded_count += 1
+        if tempo == 0.0:
+            continue
+        admission = _admit_unlabelled(tempo, target)
+        if admission is None:
+            continue
+        admitted, factor = admission
+        fit = min(
+            (f for f in fits if abs(f[1] - admitted) <= admitted * BPM_LABEL_TOLERANCE),
+            key=lambda f: abs(f[1] - admitted),
+            default=None,
+        )
+        if fit is not None:
+            admitted = fit[1]
+        line = _format_detected_line(tempo, admitted, factor, fit)
+        rows.append(
+            _ResultRow(path, library_name, filename, Path(path).parent.name, line)
+        )
+    return rows, considered_count
 
 
 async def search_samples(keyword: str, max_results: int = 100) -> str:
@@ -143,6 +357,138 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
     return result
 
 
+async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
+    """No tempo range in play -- unchanged since before Phase 2 #3 existed."""
+    matches = search_all_libraries(keyword, max_results)
+
+    if not matches:
+        set_last_search_results([])
+        return f"No samples found matching '{keyword}' across all libraries"
+
+    set_last_search_results(matches)
+
+    result = f"Found {len(matches)} samples matching '{keyword}':\n"
+    result += "Analyzing BPM (this may take a moment)...\n\n"
+
+    for i, (path, library_name) in enumerate(matches, 1):
+        filename = Path(path).name
+        folder = Path(path).parent.name
+
+        try:
+            tempo, duration = _decode_and_detect(audio, path, filename)
+            bpm_line = _format_bpm_line(tempo, duration, label=None)
+
+            result += f"{i}. {filename}\n"
+            result += f"   BPM: {bpm_line}\n"
+            result += f"   Library: {library_name}\n"
+            result += f"   Folder: {folder}\n"
+            result += f"   Path: {path}\n\n"
+
+        except Exception as e:
+            result += f"{i}. {filename}\n"
+            result += f"   BPM: Unable to detect ({e})\n"
+            result += f"   Library: {library_name}\n"
+            result += f"   Folder: {folder}\n"
+            result += f"   Path: {path}\n\n"
+
+    result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
+
+    return result
+
+
+async def _search_by_bpm_ranged(
+    keyword: str,
+    target: BpmTarget,
+    range_note: str,
+    max_results: int,
+    audio,
+) -> str:
+    """A tempo range is in play. Two families of match: files whose own
+    filename/folder label puts them in range (free, trustworthy -- #3a), and
+    files with NO tempo label at all, run through detection and offered only
+    if an octave-aware reading lands in range (Phase 2 #3b -- the real Pro
+    differentiator, since free search can only ever find a labelled range).
+    """
+    pool = search_all_libraries(
+        keyword, CANDIDATE_POOL_SIZE, bpm_filter=target, allow_unlabelled=True
+    )
+    if not pool:
+        set_last_search_results([])
+        return f"No samples found matching '{keyword}'{range_note} across all libraries"
+
+    labelled_pool: list[tuple[str, str, float]] = []
+    unlabelled_pool: list[tuple[str, str]] = []
+    for path, library_name in pool:
+        label = _label_bpm(path, library_name, target)
+        if label is not None:
+            labelled_pool.append((path, library_name, label))
+        else:
+            unlabelled_pool.append((path, library_name))
+
+    labelled_rows = [
+        _confirm_labelled(audio, path, library_name, label)
+        for path, library_name, label in labelled_pool[:max_results]
+    ]
+
+    total_candidates = len(unlabelled_pool)
+    unlabelled_rows, considered_count = _discover_unlabelled(
+        audio, unlabelled_pool, target
+    )
+
+    # Both sections in DISPLAYED order -- collect_search_results indexes into
+    # this cache, so a mismatch here would copy the wrong file.
+    set_last_search_results(
+        [(r.path, r.library_name) for r in labelled_rows + unlabelled_rows]
+    )
+
+    if not labelled_rows and not unlabelled_rows:
+        if total_candidates > 0:
+            return (
+                f"No confirmed matches for '{keyword}'{range_note}. Checked "
+                f"{considered_count} of {total_candidates} unlabelled candidates, "
+                f"none confirmed a tempo in range."
+            )
+        return f"No samples found matching '{keyword}'{range_note} across all libraries"
+
+    result = (
+        f"Found {len(labelled_rows) + len(unlabelled_rows)} samples "
+        f"matching '{keyword}'{range_note}:\n"
+        "Analyzing BPM (this may take a moment)...\n\n"
+    )
+
+    # Only split into headed sections once the unlabelled section actually
+    # has something to show -- the common labelled-only case keeps the exact
+    # #3a layout.
+    show_headers = bool(labelled_rows) and bool(unlabelled_rows)
+    i = 0
+    if labelled_rows:
+        if show_headers:
+            result += f"Labelled{range_note} ({len(labelled_rows)} files)\n"
+        for row in labelled_rows:
+            i += 1
+            result += _render_row(i, row)
+    if unlabelled_rows:
+        if show_headers:
+            result += (
+                f"Detected, not labelled — worth auditioning "
+                f"({len(unlabelled_rows)} files)\n"
+            )
+        for row in unlabelled_rows:
+            i += 1
+            result += _render_row(i, row)
+
+    if total_candidates > 0:
+        truncated = considered_count < total_candidates
+        result += (
+            f"Checked {considered_count} of {total_candidates} unlabelled "
+            f"candidates{' (detection budget reached)' if truncated else ''}.\n\n"
+        )
+
+    result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
+
+    return result
+
+
 async def search_samples_by_bpm(
     keyword: str,
     min_bpm: int | None = None,
@@ -158,10 +504,16 @@ async def search_samples_by_bpm(
 
     With a range, results are already filtered to samples whose filename or
     folder carries an in-range tempo, so this shows that label as the BPM
-    and detects each one only to confirm it -- the Pro value is trustworthy,
-    range-filtered results, not raw detection. Without a range, every match
-    is detected and shown as before. Recommended 5-20 results for speed.
-    Results are balanced across all configured libraries. Pro feature.
+    and detects each one only to confirm it. It ALSO runs detection on
+    matching files that carry NO tempo label at all, offering any whose
+    detected tempo (allowing an exact half/double reading) lands in range as
+    a candidate worth auditioning -- clearly separated from the confirmed,
+    labelled matches and never asserted as certain. That's the real Pro
+    value: free search can only ever find a labelled range.
+
+    Without a range, every match is detected and shown as before. Recommended
+    5-20 results for speed. Results are balanced across all configured
+    libraries. Pro feature.
     """
     gate = require_pro("search_samples_by_bpm")
     if gate:
@@ -181,55 +533,13 @@ async def search_samples_by_bpm(
 
     audio, np = _require_audio()
 
-    matches = search_all_libraries(keyword, max_results, bpm_filter=bpm_filter)
+    if effective_range is None:
+        return await _search_by_bpm_no_range(keyword, max_results, audio)
 
-    range_note = ""
-    if effective_range is not None:
-        low, high = int(effective_range.low), int(effective_range.high)
-        range_note = (
-            f" ({low}-{high} BPM)" if effective_range.is_range else f" ({low} BPM)"
-        )
-
-    if not matches:
-        set_last_search_results([])
-        return f"No samples found matching '{keyword}'{range_note} across all libraries"
-
-    # Cache results so collect_search_results works after a BPM search too,
-    # instead of silently reading a stale cache from an earlier keyword search.
-    set_last_search_results(matches)
-
-    result = f"Found {len(matches)} samples matching '{keyword}'{range_note}:\n"
-    result += "Analyzing BPM (this may take a moment)...\n\n"
-
-    for i, (path, library_name) in enumerate(matches, 1):
-        filename = Path(path).name
-        folder = Path(path).parent.name
-
-        try:
-            y, sr = audio.load_audio(path, duration=15)
-            duration = len(y) / sr
-            tempo, _ = audio.detect_tempo_with_hint(y, sr=sr, filename=filename)
-
-            label = (
-                _label_bpm(path, library_name, effective_range)
-                if effective_range is not None
-                else None
-            )
-            bpm_line = _format_bpm_line(tempo, duration, label)
-
-            result += f"{i}. {filename}\n"
-            result += f"   BPM: {bpm_line}\n"
-            result += f"   Library: {library_name}\n"
-            result += f"   Folder: {folder}\n"
-            result += f"   Path: {path}\n\n"
-
-        except Exception as e:
-            result += f"{i}. {filename}\n"
-            result += f"   BPM: Unable to detect ({e})\n"
-            result += f"   Library: {library_name}\n"
-            result += f"   Folder: {folder}\n"
-            result += f"   Path: {path}\n\n"
-
-    result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
-
-    return result
+    low, high = int(effective_range.low), int(effective_range.high)
+    range_note = (
+        f" ({low}-{high} BPM)" if effective_range.is_range else f" ({low} BPM)"
+    )
+    return await _search_by_bpm_ranged(
+        keyword, effective_range, range_note, max_results, audio
+    )

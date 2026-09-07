@@ -1,8 +1,21 @@
 """Tests for search tools."""
 
+from pathlib import Path
+
 import pytest
 
-from digr.tools.search import _format_bpm_line, search_samples, search_samples_by_bpm
+from digr.tools._query import BpmTarget
+from digr.tools.search import (
+    DETECTION_BUDGET_FILES,
+    ONE_SHOT_MAX_DURATION,
+    _admit_unlabelled,
+    _bar_grid_fits,
+    _discover_unlabelled,
+    _format_bpm_line,
+    _format_detected_line,
+    search_samples,
+    search_samples_by_bpm,
+)
 from digr.tools._shared import get_last_search_results
 
 
@@ -325,3 +338,278 @@ class TestFormatBpmLine:
     def test_no_label_falls_back_to_raw_detection(self):
         """No-range mode: behaves exactly as before this feature existed."""
         assert _format_bpm_line(tempo=117.5, duration=8.0, label=None) == "117.5"
+
+
+# ---------------------------------------------------------------------------
+# Detection-discovery of unlabelled files (Phase 2 #3b)
+# ---------------------------------------------------------------------------
+
+
+class TestBarGridFits:
+    """Duration-only, pre-decode ordering: a loop is almost always a whole
+    number of 4/4 bars, and duration is readable from the file header."""
+
+    def test_exact_bar_length_admits_true_tempo(self):
+        duration = 4 * 4 * 60.0 / 174.0  # 4 bars at 174 BPM
+        fits = _bar_grid_fits(duration, BpmTarget(170.0, 178.0))
+        assert (4, 174.0) in fits
+
+    def test_wrong_tempo_length_is_not_admitted(self):
+        duration = 2 * 4 * 60.0 / 124.0  # 2 bars at 124 BPM
+        assert _bar_grid_fits(duration, BpmTarget(170.0, 178.0)) == []
+
+    def test_power_rule_skips_long_files(self):
+        """Above roughly one whole bar-count fitting inside the range, the
+        test is uninformative and must say nothing rather than pretend."""
+        assert _bar_grid_fits(30.0, BpmTarget(170.0, 178.0)) == []
+
+    def test_power_rule_skips_wide_ranges(self):
+        assert _bar_grid_fits(5.0, BpmTarget(120.0, 180.0)) == []
+
+
+class TestAdmitUnlabelled:
+    """Octave-aware admission: accept ambiguities that exist in the music
+    (half/double), reject artefacts that exist only in the algorithm."""
+
+    def test_direct_match(self):
+        assert _admit_unlabelled(172.0, BpmTarget(170.0, 178.0)) == (172.0, 1.0)
+
+    def test_double_time_rescues_a_halved_detection(self):
+        """The measured collapse: an unlabelled 172 loop often detects at
+        86.1 (exact half) -- must be admitted as 172 at double time."""
+        admitted, factor = _admit_unlabelled(86.1, BpmTarget(170.0, 178.0))
+        assert admitted == pytest.approx(172.2)
+        assert factor == 2.0
+
+    def test_half_time_admits_an_overdetected_tempo(self):
+        admitted, factor = _admit_unlabelled(344.0, BpmTarget(170.0, 178.0))
+        assert admitted == pytest.approx(172.0)
+        assert factor == 0.5
+
+    def test_three_halves_ratio_is_not_admitted(self):
+        """3/2 is the detector's own failure mode, not a musical ambiguity
+        (decision B1) -- 82 * 1.5 = 123 falls inside the range but must NOT
+        be accepted."""
+        assert _admit_unlabelled(82.0, BpmTarget(120.0, 128.0)) is None
+
+    def test_out_of_range_at_every_octave_is_rejected(self):
+        assert _admit_unlabelled(100.0, BpmTarget(170.0, 178.0)) is None
+
+
+class TestFormatDetectedLine:
+    """The unlabelled-candidate wording, in isolation -- never asserts a
+    bare tempo, since confidence alone cannot separate a real loop from a
+    one-shot (a one-shot measured 1.00, the maximum)."""
+
+    def test_direct_match_has_no_octave_note(self):
+        line = _format_detected_line(detected=172.3, admitted=172.3, factor=1.0, fit=None)
+        assert line == "~172 (detected 172.3) — no BPM in the name"
+
+    def test_double_time_note(self):
+        line = _format_detected_line(detected=86.1, admitted=172.2, factor=2.0, fit=None)
+        assert line == "~172 (detected 86.1 at double time) — no BPM in the name"
+
+    def test_half_time_note(self):
+        line = _format_detected_line(detected=344.0, admitted=172.0, factor=0.5, fit=None)
+        assert "at half time" in line
+
+    def test_bar_grid_corroboration_is_mentioned(self):
+        line = _format_detected_line(
+            detected=86.1, admitted=172.0, factor=2.0, fit=(4, 172.0)
+        )
+        assert "length fits 4 bars at 172" in line
+
+    def test_never_asserts_a_bare_tempo(self):
+        line = _format_detected_line(detected=172.0, admitted=172.0, factor=1.0, fit=None)
+        assert line.startswith("~")
+        assert "no BPM in the name" in line
+
+
+class _FakeAudio:
+    """Deterministic stand-in for the audio module -- unit-tests the
+    duration-guard/budget/ordering LOGIC in _discover_unlabelled without
+    decoding real files."""
+
+    def __init__(self, durations: dict, tempos: dict):
+        self._durations = durations
+        self._tempos = tempos
+
+    def get_native_duration(self, path):
+        return self._durations[path]
+
+    def load_audio(self, path, duration=15):
+        return [0.0], 22050
+
+    def detect_tempo_with_hint(self, y, sr=22050, filename=""):
+        return self._tempos[filename], 1.0
+
+
+class TestDiscoverUnlabelled:
+    """Stages 4-6 end-to-end at the pure-function level."""
+
+    def test_one_shot_is_never_admitted_regardless_of_detected_tempo(self):
+        """Regression for the confidence finding: a one-shot must be
+        rejected on duration ALONE, before admission logic ever runs --
+        even when its "detected" tempo would otherwise land in range."""
+        candidates = [("/lib/shaker_oneshot.wav", "Lib")]
+        audio = _FakeAudio(
+            durations={"/lib/shaker_oneshot.wav": ONE_SHOT_MAX_DURATION - 0.1},
+            tempos={"shaker_oneshot.wav": 258.4},  # would pass admission if reached
+        )
+        rows, considered = _discover_unlabelled(audio, candidates, BpmTarget(170.0, 178.0))
+        assert rows == []
+        assert considered == 1  # rejected, but still honestly "considered"
+
+    def test_budget_caps_the_number_of_decodes(self):
+        """More unlabelled candidates than the budget: exactly
+        DETECTION_BUDGET_FILES are considered, and the remainder is
+        reportable as truncated rather than silently dropped."""
+        n = DETECTION_BUDGET_FILES + 10
+        candidates = [(f"/lib/loop_{i}.wav", "Lib") for i in range(n)]
+        audio = _FakeAudio(
+            durations={p: 10.0 for p, _ in candidates},
+            tempos={f"loop_{i}.wav": 172.0 for i in range(n)},
+        )
+        rows, considered = _discover_unlabelled(audio, candidates, BpmTarget(170.0, 178.0))
+        assert considered == DETECTION_BUDGET_FILES
+        assert len(rows) == DETECTION_BUDGET_FILES
+
+    def test_bar_grid_fit_is_decoded_before_a_non_fitting_candidate(self):
+        """Stage 4: ordering, not gating -- the fitting candidate is decoded
+        first, but a non-fitting one still gets its turn within budget."""
+        no_fit_duration = 30.0  # power-rule-uninformative length either way
+        fit_duration = 4 * 4 * 60.0 / 172.0  # exact 4 bars at 172
+        candidates = [("/lib/no_fit.wav", "Lib"), ("/lib/has_fit.wav", "Lib")]
+        audio = _FakeAudio(
+            durations={"/lib/no_fit.wav": no_fit_duration, "/lib/has_fit.wav": fit_duration},
+            tempos={"no_fit.wav": 172.0, "has_fit.wav": 86.1},
+        )
+        rows, considered = _discover_unlabelled(audio, candidates, BpmTarget(170.0, 178.0))
+        assert considered == 2
+        assert rows[0].filename == "has_fit.wav"  # the bar-grid fit went first
+        assert "length fits 4 bars at 172" in rows[0].bpm_line
+
+
+class TestOptInSafety:
+    """allow_unlabelled must never reach the organise tools by default --
+    collect_samples/sort_samples share this engine but copy/move files, and
+    a silent tempo filter there would touch files nobody asked for."""
+
+    def test_search_all_libraries_defaults_to_no_unlabelled_matching(self):
+        import inspect
+
+        from digr.tools._shared import search_all_libraries
+
+        sig = inspect.signature(search_all_libraries)
+        assert sig.parameters["allow_unlabelled"].default is False
+
+    def test_organize_never_passes_bpm_filter_or_allow_unlabelled(self):
+        import inspect
+
+        from digr.tools import organize
+
+        source = inspect.getsource(organize)
+        assert "bpm_filter" not in source
+        assert "allow_unlabelled" not in source
+
+
+def _synth_break_loop(bpm: float, bars: int, sr: int = 22050, seed: int = 0):
+    """A deterministic (seeded), REAL, decodable break-style loop: kick/snare
+    /ghost-hat pattern with enough syncopation for the detector to lock onto
+    the true tempo rather than a further sub-harmonic, trimmed to an EXACT
+    whole number of 4/4 bars. Mirrors the design-pass benchmark that measured
+    the double-time collapse this feature corrects for."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    spb = 60.0 / bpm
+    step = spb / 4
+    n = int(spb * 4 * bars * sr) + sr
+    y = np.zeros(n, dtype=np.float32)
+
+    def hit(t, freq, dur, amp, noise=0.0):
+        i = int(t * sr)
+        length = int(dur * sr)
+        if i + length > n:
+            return
+        env = np.exp(-np.linspace(0, 12, length))
+        tone = np.sin(2 * np.pi * freq * np.arange(length) / sr)
+        sig = tone * (1 - noise) + rng.standard_normal(length) * noise
+        y[i : i + length] += (sig * env * amp).astype(np.float32)
+
+    kick, snare = {0, 10}, {4, 13}
+    for s in range(16 * bars):
+        t = s * step
+        pos = s % 16
+        if pos in kick:
+            hit(t, 55, 0.22, 0.95)
+        if pos in snare:
+            hit(t, 210, 0.18, 0.8, noise=0.75)
+        if pos % 2 == 1:
+            hit(t, 9000, 0.03, 0.25, noise=0.95)
+
+    return y[: int(bars * 4 * spb * sr)]  # trim to an exact whole-bar length
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_unlabelled_loop_discovered_via_double_time(tmp_path, pro_license):
+    """End-to-end with REAL decoded audio: a 4-bar 172 loop with NO number in
+    its filename must be found by detection-discovery, admitted via the
+    double-time octave reading (the measured collapse -- an unlabelled fast
+    loop detects at half its true tempo, e.g. 86.1 for a real 172), and
+    corroborated by its bar-exact length. Closes the wiring gap the
+    fake-bytes tests can't reach (they fail to decode and hit the exception
+    branch instead)."""
+    import soundfile as sf
+
+    from digr.tools._shared import set_libraries
+
+    y = _synth_break_loop(bpm=172.0, bars=4)
+
+    lib = tmp_path / "Loops"
+    lib.mkdir()
+    sf.write(str(lib / "amen_chop_alpha.wav"), y, 22050)
+    set_libraries({"Loops": tmp_path})
+
+    result = await search_samples_by_bpm("", min_bpm=170, max_bpm=178)
+
+    assert "amen_chop_alpha.wav" in result
+    assert "at double time" in result
+    assert "no BPM in the name" in result
+    assert "length fits 4 bars at 172" in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_shows_both_sections_and_caches_in_displayed_order(
+    bpm_range_library, pro_license
+):
+    """When a labelled hit and an admitted unlabelled candidate both exist,
+    the response splits into headed 'Labelled' / 'Detected, not labelled'
+    sections with CONTINUOUS numbering, and the results cache must list
+    every match in that exact displayed order -- collect_search_results
+    indexes into it, so a mismatch across the section break would copy the
+    wrong file."""
+    import soundfile as sf
+
+    y = _synth_break_loop(bpm=172.0, bars=4, seed=1)
+    # Same library as the fixture's labelled shakers, no number in the name.
+    sf.write(str(bpm_range_library / "amen_chop_beta.wav"), y, 22050)
+
+    result = await search_samples_by_bpm("", min_bpm=170, max_bpm=178)
+
+    assert "Labelled (170-178 BPM) (2 files)" in result
+    assert "Detected, not labelled — worth auditioning (1 files)" in result
+    # Both labelled hits (same score tier) precede the unlabelled candidate,
+    # numbered continuously across the section break; their relative order
+    # is the engine's existing tie-break (shorter path first) -- unrelated
+    # to #3b and not what this test is pinning down.
+    assert result.index("1. TSP_NOISIA_") < result.index("2. TSP_NOISIA_")
+    assert result.index("2. TSP_NOISIA_") < result.index("3. amen_chop_beta.wav")
+
+    cached = get_last_search_results()
+    cached_names = [Path(p).name for p, _ in cached]
+    assert cached_names[:2] == [
+        "TSP_NOISIA_174_shaker_hats.wav",
+        "TSP_NOISIA_172_drum_loop_shakerloopedit.wav",
+    ]
+    assert cached_names[2] == "amen_chop_beta.wav"
