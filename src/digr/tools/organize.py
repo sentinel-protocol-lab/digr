@@ -8,6 +8,7 @@ from ._query import (
     extract_bpm_from_filename,
     extract_key_from_filename,
 )
+from ._rename_log import MAX_BATCHES, last_batch, record_batch, replace_last_batch
 from ._shared import (
     audio_warming_message,
     copy_or_move,
@@ -378,20 +379,115 @@ async def rename_with_metadata(
     # Execute mode
     renamed = 0
     errors = []
+    # Only the renames that actually landed, so the undo log never claims one
+    # that did not happen.
+    performed: list[tuple[Path, Path]] = []
     for old, new, info in plan:
         if old == new:
             continue
         try:
             old.rename(new)
             renamed += 1
+            performed.append((old, new))
         except Exception as e:
             errors.append(f"{old.name}: {e}")
+
+    # Recorded for EVERY rename, prefix-only included. The free path is just as
+    # irreversible as the detected one -- a typo in a prefix applied to 500
+    # files needs undo exactly as much as a wrong BPM does.
+    record_batch(performed)
 
     result = f"Renamed {renamed}/{len(plan)} files\n"
     if errors:
         result += f"\n{len(errors)} errors:\n"
         for err in errors:
             result += f"  - {err}\n"
+    if renamed:
+        result += "\nTo reverse this, call undo_rename().\n"
+    return result
+
+
+async def undo_rename(confirm: bool = False) -> str:
+    """Reverse the most recent rename_with_metadata batch, restoring old filenames.
+
+    First call returns a PREVIEW of what would be restored. Call again with
+    confirm=true to execute. Free tool -- no license required.
+    """
+    batch = last_batch()
+    if batch is None:
+        return (
+            "ERROR: No renames to undo.\n"
+            "Digr has no record of a rename in this config. Only renames made "
+            "by rename_with_metadata are logged, and only the most recent "
+            f"{MAX_BATCHES} batches are kept."
+        )
+
+    when = batch.get("timestamp", "an earlier run")
+    entries = batch["renames"]
+
+    # A rename is reversible only if the file is still where Digr left it and
+    # the name it came from is still free. Both are checked BEFORE anything
+    # moves, so the preview tells the truth about what confirm would do.
+    restorable: list[tuple[Path, Path, dict]] = []
+    blocked: list[str] = []
+    blocked_entries: list[dict] = []
+    for entry in entries:
+        old, new = Path(entry["from"]), Path(entry["to"])
+        if not new.exists():
+            blocked.append(f"{new.name} — no longer there; moved or renamed again since")
+            blocked_entries.append(entry)
+        elif old.exists():
+            blocked.append(f"{new.name} — cannot restore, {old.name} already exists")
+            blocked_entries.append(entry)
+        else:
+            restorable.append((old, new, entry))
+
+    if not confirm:
+        result = f"PREVIEW -- Undo the rename batch from {when}:\n\n"
+        for old, new, _ in restorable:
+            result += f"  {new.name}\n  -> {old.name}\n\n"
+        if blocked:
+            result += f"{len(blocked)} file(s) CANNOT be restored and will be skipped:\n"
+            for note in blocked:
+                result += f"  - {note}\n"
+            result += "\n"
+        if not restorable:
+            return result + "Nothing can be restored from this batch."
+        result += (
+            f"ACTION REQUIRED: Call again with confirm=true to restore "
+            f"these {len(restorable)} file(s)."
+        )
+        return result
+
+    restored = 0
+    errors = []
+    # Anything not put back stays in the log so a later undo can retry it.
+    # Dropping the whole batch would strand exactly the files that failed.
+    unreversed = list(blocked_entries)
+    for old, new, entry in restorable:
+        try:
+            new.rename(old)
+            restored += 1
+        except Exception as e:
+            errors.append(f"{new.name}: {e}")
+            unreversed.append(entry)
+
+    replace_last_batch(unreversed)
+
+    result = f"Restored {restored}/{len(entries)} file(s) from the batch renamed at {when}\n"
+    if blocked:
+        result += f"\n{len(blocked)} skipped:\n"
+        for note in blocked:
+            result += f"  - {note}\n"
+    if errors:
+        result += f"\n{len(errors)} error(s):\n"
+        for err in errors:
+            result += f"  - {err}\n"
+    if unreversed:
+        result += (
+            "\nThe entries that could not be restored are kept in the history, "
+            "so undo_rename() can retry them once the obstruction is cleared.\n"
+        )
     return result
 
 

@@ -4,12 +4,14 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from digr.tools._rename_log import MAX_BATCHES, history_path, read_batches
 from digr.tools.organize import (
     collect_samples,
     collect_search_results,
     copy_samples,
     rename_with_metadata,
     sort_samples,
+    undo_rename,
 )
 from digr.tools.search import search_samples
 
@@ -226,3 +228,197 @@ async def test_rename_confirm_actually_renames(tmp_path):
 
     assert not path.exists()
     assert (tmp_path / "DNB_untitled_loop.wav").exists()
+
+
+# ---------------------------------------------------------------------------
+# undo_rename -- every rename is reversible
+# ---------------------------------------------------------------------------
+#
+# A rename that is wrong but undoable is a nuisance. A rename that is wrong and
+# permanent is data loss, and every rename Digr made used to be the second
+# kind. The history lives in the config dir, which conftest redirects into a
+# temp dir per test, so these never touch a real user's log.
+
+
+@pytest.mark.asyncio
+async def test_undo_restores_a_prefix_rename(tmp_path):
+    """Prefix-only renaming is the FREE path and involves no detection at all,
+    but a typo applied to a whole library is still a manual repair job. It has
+    to be logged and undoable like anything else -- note no pro_license here,
+    for either the rename or the undo."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+    assert (tmp_path / "DNB_untitled_loop.wav").exists()
+
+    result = await undo_rename(confirm=True)
+
+    assert (tmp_path / "untitled_loop.wav").exists()
+    assert not (tmp_path / "DNB_untitled_loop.wav").exists()
+    assert "1/1" in result
+
+
+@pytest.mark.asyncio
+async def test_undo_preview_restores_nothing(tmp_path):
+    """Same two-phase confirm as every other destructive tool."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+
+    result = await undo_rename(confirm=False)
+
+    assert "PREVIEW" in result
+    assert "DNB_untitled_loop.wav" in result
+    assert (tmp_path / "DNB_untitled_loop.wav").exists()  # still renamed
+    assert not (tmp_path / "untitled_loop.wav").exists()
+
+
+@pytest.mark.asyncio
+async def test_undo_with_no_history_says_so(tmp_path):
+    result = await undo_rename(confirm=True)
+    assert "ERROR" in result
+    assert "No renames to undo" in result
+
+
+@pytest.mark.asyncio
+async def test_undo_reverses_the_most_recent_batch_only(tmp_path):
+    """Batches are the unit of undo because they are the unit the user thinks
+    in: put back what that last call did, not everything ever."""
+    first = _write_loop(tmp_path, "one.wav", 120.0)
+    await rename_with_metadata(str(first), prefix="A", confirm=True)
+    second = _write_loop(tmp_path, "two.wav", 120.0)
+    await rename_with_metadata(str(second), prefix="B", confirm=True)
+
+    await undo_rename(confirm=True)
+
+    assert (tmp_path / "two.wav").exists()  # newest batch reversed
+    assert (tmp_path / "A_one.wav").exists()  # older batch untouched
+
+
+@pytest.mark.asyncio
+async def test_a_second_undo_walks_back_to_the_previous_batch(tmp_path):
+    first = _write_loop(tmp_path, "one.wav", 120.0)
+    await rename_with_metadata(str(first), prefix="A", confirm=True)
+    second = _write_loop(tmp_path, "two.wav", 120.0)
+    await rename_with_metadata(str(second), prefix="B", confirm=True)
+
+    await undo_rename(confirm=True)
+    await undo_rename(confirm=True)
+
+    assert (tmp_path / "one.wav").exists()
+    assert (tmp_path / "two.wav").exists()
+    assert read_batches() == []
+
+
+@pytest.mark.asyncio
+async def test_undo_skips_a_file_that_moved_since(tmp_path):
+    """Skip and report, never guess. Digr has no idea where the file went."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+    (tmp_path / "DNB_untitled_loop.wav").unlink()
+
+    result = await undo_rename(confirm=True)
+
+    assert "0/1" in result
+    assert "no longer there" in result
+
+
+@pytest.mark.asyncio
+async def test_undo_skips_when_the_original_name_is_taken(tmp_path):
+    """Restoring would clobber whatever now holds that name, which is a second
+    destructive act performed to reverse the first."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+    _write_loop(tmp_path, "untitled_loop.wav", 90.0)  # something else claimed it
+
+    result = await undo_rename(confirm=True)
+
+    assert "already exists" in result
+    assert (tmp_path / "DNB_untitled_loop.wav").exists()  # not clobbered
+
+
+@pytest.mark.asyncio
+async def test_an_unreversed_entry_stays_in_the_history_for_a_retry(tmp_path):
+    """Dropping the whole batch would strand exactly the files that failed to
+    restore -- the permanent-loss problem this log exists to remove."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+    blocker = _write_loop(tmp_path, "untitled_loop.wav", 90.0)
+
+    await undo_rename(confirm=True)
+    assert len(read_batches()) == 1  # kept, not dropped
+
+    blocker.unlink()  # obstruction cleared
+    result = await undo_rename(confirm=True)
+
+    assert "1/1" in result
+    assert (tmp_path / "untitled_loop.wav").exists()
+
+
+@pytest.mark.asyncio
+async def test_only_successful_renames_are_logged(tmp_path):
+    """The log must never claim a rename that did not happen."""
+    real = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(
+        [str(real), "/nonexistent/ghost.wav"], prefix="DNB", confirm=True
+    )
+
+    batches = read_batches()
+    assert len(batches) == 1
+    assert len(batches[0]["renames"]) == 1
+    assert "untitled_loop" in batches[0]["renames"][0]["from"]
+
+
+@pytest.mark.asyncio
+async def test_history_is_capped(tmp_path):
+    """An append-only file in the config dir has nothing else to prune it."""
+    for i in range(MAX_BATCHES + 5):
+        path = _write_loop(tmp_path, f"loop_{i}.wav", 120.0)
+        await rename_with_metadata(str(path), prefix=f"P{i}", confirm=True)
+
+    assert len(read_batches()) == MAX_BATCHES
+
+
+@pytest.mark.asyncio
+async def test_a_corrupt_line_does_not_block_the_rest_of_the_history(tmp_path):
+    """This file is read when a user is trying to undo damage. A stray bad
+    line must not be what stops them getting their history back."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+
+    log = history_path()
+    log.write_text("not json at all\n" + log.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = await undo_rename(confirm=True)
+
+    assert (tmp_path / "untitled_loop.wav").exists()
+    assert "1/1" in result
+
+
+@pytest.mark.asyncio
+async def test_rename_points_the_user_at_undo(tmp_path):
+    """The tool that does the damage should say how to reverse it."""
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+
+    result = await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+
+    assert "undo_rename" in result
+
+
+@pytest.mark.asyncio
+async def test_undo_is_free_and_works_with_no_licence(tmp_path):
+    """Undoing damage must never sit behind a licence. A lapsed or unactivated
+    key would strand a user mid-rename, which is exactly when they need this
+    most. The gate is ON and no key is set here (see conftest's reset_license),
+    so this test fails the moment undo_rename is made Pro."""
+    from digr.tools import _shared
+    from digr.tools._shared import is_pro_licensed
+
+    assert _shared.ENFORCE_LICENSE_GATE  # the gate is live for this test
+    assert not is_pro_licensed()  # and the user has no licence
+
+    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
+    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
+
+    result = await undo_rename(confirm=True)
+
+    assert "Pro" not in result
+    assert (tmp_path / "untitled_loop.wav").exists()

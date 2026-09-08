@@ -24,6 +24,7 @@ from .tools.organize import (
     copy_samples,
     rename_with_metadata,
     sort_samples,
+    undo_rename,
 )
 from .tools.search import search_samples, search_samples_by_bpm
 
@@ -120,6 +121,11 @@ def create_server(config: Config | None = None) -> FastMCP:
     mcp.tool()(list_folders)
     mcp.tool()(count_samples_in_folder)
     mcp.tool()(list_all_samples_in_folder)
+
+    # Undoing damage must never sit behind a licence. A lapsed or unactivated
+    # key would strand a user mid-rename, which is exactly when they need this
+    # most -- so it is registered with the free tools, not the Pro ones.
+    mcp.tool()(undo_rename)
 
     # --- License tools ---
     mcp.tool()(activate_license)
