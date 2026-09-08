@@ -58,3 +58,7 @@ packages = ["src/digr"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# benchmarks/ holds the fixed tempo corpus the accuracy guard measures against.
+# It is not part of the distributed package (see the wheel target above), so it
+# is put on the path here rather than installed.
+pythonpath = ["benchmarks"]
