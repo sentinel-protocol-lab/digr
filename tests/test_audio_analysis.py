@@ -6,6 +6,7 @@ import soundfile as sf
 
 from digr.tools._audio_analysis import (
     SOURCE_DETECTED,
+    SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
     compute_chroma,
@@ -230,12 +231,27 @@ class TestTempoSource:
         assert result.source == SOURCE_DETECTED
         assert result.detected == result.tempo
 
-    def test_hint_agreeing_with_detection_still_reports_a_detection(self):
-        """The hint corroborated the measurement rather than replacing it."""
+    def test_hint_agreeing_with_detection_returns_the_label(self):
+        """Agreement means the measurement CORROBORATED the label, not that it
+        replaces it. The label is the producer's statement; a measurement that
+        lands next to it adds confidence, not precision."""
         y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
         result = detect_tempo_with_hint(y, sr=22050, filename="loop_120bpm.wav")
-        assert result.source == SOURCE_DETECTED
-        assert result.detected == result.tempo
+        assert result.source == SOURCE_LABEL_CONFIRMED
+        assert result.tempo == 120.0
+        # and the measurement survives, so a caller can show what confirmed it
+        assert abs(result.detected - 120.0) < 6.0
+
+    def test_a_near_miss_is_not_claimed_as_agreement(self):
+        """Regression for the wrong-tempo-written-to-disk defect: 136 measured
+        against a 145 label is a 6% disagreement. The old +/-8% window called
+        that agreement and returned 136, permanently renaming a correctly
+        labelled file. It must keep 145 and admit it could not confirm it."""
+        y = _make_click_track(bpm=136.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(y, sr=22050, filename="FPV_Kit_145BPM.wav")
+        assert result.tempo == 145.0
+        assert result.source == SOURCE_LABEL_ONLY
+        assert abs(result.detected - 136.0) < 6.0
 
     def test_hint_that_is_a_harmonic_of_the_detection_is_flagged(self):
         """The label is returned, but detection did find the right pulse --
@@ -255,6 +271,18 @@ class TestTempoSource:
         assert result.tempo == 97.0
         assert abs(result.detected - 120.0) < 6.0
         assert result.confidence <= 0.25
+
+    def test_a_correctly_labelled_file_keeps_its_own_number(self):
+        """The rename defect in one assertion. This file is labelled 117 and
+        measures ~123; the tool renamed it to 123bpm, in place, permanently.
+        Whatever the branch decides about confirmation, the number handed to a
+        caller must be the one the producer wrote."""
+        y = _make_click_track(bpm=123.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(
+            y, sr=22050, filename="Aisha - The Creator D minor 117 BPM.wav"
+        )
+        assert result.tempo == 117.0
+        assert result.source != SOURCE_DETECTED
 
     def test_silence_reports_a_detection_of_nothing(self):
         y = np.zeros(22050 * 5, dtype=np.float32)

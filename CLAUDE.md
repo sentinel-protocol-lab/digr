@@ -53,7 +53,7 @@ The server also accepts pipe-delimited, newline-delimited, and single path strin
 - `search_samples_by_bpm` — search + BPM detection (requires `[audio]` extras)
 - `read_midi` — parse MIDI files to bar|beat format
 - `sort_samples` — categorize into subfolders (Kicks, Snares, etc.)
-- `rename_with_metadata` — append BPM/key to filenames (prefix-only renaming is free; BPM/key detection requires Pro)
+- `rename_with_metadata` — append BPM/key to filenames (prefix-only renaming is free; BPM/key detection requires Pro). `include_bpm` and `include_key` both default to **False** and must be asked for explicitly
 
 ## Common Workflows
 
@@ -74,6 +74,8 @@ search_samples(keyword="reverse cymbal") → analyze_sample(filepath="...") → 
 
 ## Known Gotchas
 
+- **A filename's BPM label always wins over detection** — the label is the producer's statement about their own file; detection is an estimate. When they agree the estimate adds confidence, not precision, so it never overwrites the label. `TempoResult.source` says which of the four cases applied (`detected`, `label_confirmed`, `label_harmonic`, `label_only`) and `TempoResult.detected` always carries what was measured — display code must show `detected`, never `tempo`, when reporting what confirmed a label
+- **`rename_with_metadata` never appends a tag the filename already carries** — including across notations, so a stem ending `D#m` blocks an appended `Ds`
 - **BPM detection halves/doubles on short samples** — autocorrelation limitation, not a bug
 - **One-shots return 0.0 BPM** — expected behavior for non-rhythmic content
 - **Cannot load samples into Simpler/Sampler via MCP** — use `ppal-create-clip` with `sampleFile` for audio clips instead

@@ -3,6 +3,11 @@
 from pathlib import Path
 from typing import Union
 
+from ._query import (
+    SOURCE_DETECTED,
+    extract_bpm_from_filename,
+    extract_key_from_filename,
+)
 from ._shared import (
     audio_warming_message,
     copy_or_move,
@@ -234,14 +239,20 @@ async def collect_search_results(
 async def rename_with_metadata(
     filepaths: Union[list[str], str],
     prefix: str | None = None,
-    include_bpm: bool = True,
-    include_key: bool = True,
+    include_bpm: bool = False,
+    include_key: bool = False,
     confirm: bool = False,
 ) -> str:
     """Rename audio samples by adding a prefix and/or appending detected BPM and musical key.
 
     First call returns a PREVIEW of old -> new names. Call again with confirm=true to execute.
     Prefix-only renaming is free. BPM/key detection requires a Pro license and [audio] extras.
+
+    include_bpm and include_key default to FALSE and must be asked for. Both
+    write a permanent, un-typed-back change to the user's filenames on the
+    strength of an estimate, so they are opt-in rather than assumed. A tempo
+    the filename already states is kept as-is and never overwritten; a tempo
+    or key already present is not appended a second time.
     """
     needs_audio = include_bpm or include_key
 
@@ -290,16 +301,35 @@ async def rename_with_metadata(
 
         try:
             parts = []
+            # Tags the file already carries. Reported so the preview explains
+            # why it is shorter than the caller asked for, rather than looking
+            # as though detection silently failed.
+            already: list[str] = []
+            stem = src.stem
 
             if needs_audio:
                 y, sr = audio_engine.load_audio(str(src), duration=30)
 
                 if include_bpm:
-                    tempo = audio_engine.detect_tempo_with_hint(
+                    tempo_result = audio_engine.detect_tempo_with_hint(
                         y, sr=sr, filename=src.name
-                    ).tempo
+                    )
+                    tempo = tempo_result.tempo
                     if tempo > 0:
-                        parts.append(f"{tempo:.0f}bpm")
+                        # Compare as whole numbers: a stem saying "112" and a
+                        # result of 112.0 are the same statement.
+                        existing_bpm = extract_bpm_from_filename(stem)
+                        if existing_bpm is not None and round(existing_bpm) == round(tempo):
+                            already.append(f"{tempo:.0f}bpm already labelled")
+                        else:
+                            parts.append(f"{tempo:.0f}bpm")
+                            # A label-sourced tempo normally dedups above,
+                            # since the label came off this same stem. If one
+                            # reaches here the stem said it in a form the
+                            # dedup could not match, so the preview has to say
+                            # the number was read rather than measured.
+                            if tempo_result.source != SOURCE_DETECTED:
+                                already.append("from the filename, not measured")
 
                 if include_key:
                     chroma = audio_engine.compute_chroma(y, sr=sr)
@@ -308,9 +338,14 @@ async def rename_with_metadata(
                         "C", "Cs", "D", "Ds", "E", "F",
                         "Fs", "G", "Gs", "A", "As", "B",
                     ]
-                    parts.append(key_names[key_idx])
+                    # Enharmonics normalise, so a stem ending "D#m" already
+                    # states the key that would be appended as "Ds".
+                    existing_key = extract_key_from_filename(stem)
+                    if existing_key == key_idx:
+                        already.append(f"{key_names[key_idx]} already labelled")
+                    else:
+                        parts.append(key_names[key_idx])
 
-            stem = src.stem
             suffix = src.suffix
             new_name = prefix + "_" + stem if prefix else stem
             if parts:
@@ -322,6 +357,7 @@ async def rename_with_metadata(
                 info_parts.append(f"prefix: {prefix}")
             if parts:
                 info_parts.extend(parts)
+            info_parts.extend(already)
             info = " + ".join(info_parts) if info_parts else "no changes"
             plan.append((src, new_path, info))
 

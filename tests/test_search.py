@@ -7,6 +7,7 @@ import pytest
 from digr.tools._audio_analysis import TempoResult
 from digr.tools._query import (
     SOURCE_DETECTED,
+    SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
     BpmTarget,
@@ -380,6 +381,22 @@ class TestFormatBpmLine:
             tempo=128.0, duration=8.0, label=None, source=SOURCE_LABEL_ONLY
         )
         assert line == "128 — read from the filename, not detected"
+
+    def test_a_confirmed_label_shows_the_measurement_not_itself(self):
+        """Once the engine returns the LABEL as the tempo, ``tempo == label``
+        for this branch, so the generic tolerance check below it is trivially
+        true and would print the label as its own confirmation -- reviving the
+        exact bug this wording was written to kill. The number shown as
+        evidence has to be the measured one."""
+        line = _format_bpm_line(
+            tempo=145.0,
+            duration=8.0,
+            label=145.0,
+            source=SOURCE_LABEL_CONFIRMED,
+            detected=144.2,
+        )
+        assert line == "145 (confirmed by detection: 144.2)"
+        assert "145.0" not in line
 
     def test_a_genuine_detection_still_confirms_a_label(self):
         """The honest case is unchanged: this is what the wording is FOR."""
