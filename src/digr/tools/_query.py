@@ -177,6 +177,18 @@ def weak_expansions(token: str) -> frozenset[str]:
 BPM_MIN = 40.0
 BPM_MAX = 300.0
 
+# Where a reported tempo came from. Defined here, beside the filename BPM
+# parser, rather than in the audio engine: the engine is an optional extra
+# that the free path must never import, but the code that DISPLAYS a tempo
+# needs to name these cases. Same reason extract_bpm_from_filename lives here.
+#
+# The distinction is load-bearing. A tempo read off the filename is not a
+# measurement, and presenting one as "confirmed by detection" compares a label
+# against itself and tells the user something false.
+SOURCE_DETECTED = "detected"
+SOURCE_LABEL_HARMONIC = "label_harmonic"  # label kept; detection found an octave of it
+SOURCE_LABEL_ONLY = "label_only"  # label kept; detection did not agree at all
+
 
 class BpmTarget(NamedTuple):
     """A tempo the query asked for. ``low == high`` means an exact target.

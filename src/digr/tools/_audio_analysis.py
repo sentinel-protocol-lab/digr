@@ -7,6 +7,7 @@ to maintain equivalent accuracy without the numba/llvmlite dependency chain.
 """
 
 from math import gcd
+from typing import NamedTuple
 
 import numpy as np
 import soundfile as sf
@@ -14,8 +15,16 @@ from scipy.signal import resample_poly, stft as scipy_stft
 
 # extract_bpm_from_filename lives in _query because it is pure stdlib and the
 # FREE search path needs it -- importing this module would drag in
-# numpy/scipy/soundfile. Re-exported here so existing callers are unaffected.
-from ._query import extract_bpm_from_filename
+# numpy/scipy/soundfile. The SOURCE_* constants live there for the same
+# reason: the code that DISPLAYS a tempo has to name these cases without
+# importing the optional audio engine. Re-exported here so existing callers
+# are unaffected.
+from ._query import (
+    SOURCE_DETECTED,
+    SOURCE_LABEL_HARMONIC,
+    SOURCE_LABEL_ONLY,
+    extract_bpm_from_filename,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -198,21 +207,17 @@ def _onset_strength(
 # Tempo estimation
 # ---------------------------------------------------------------------------
 
-def detect_tempo(y: np.ndarray, sr: int = 22050) -> float:
-    """Detect BPM from audio signal.
+def _tempo_from_onset_env(onset_env: np.ndarray, sr: int = 22050) -> float:
+    """Estimate BPM from an already-computed onset envelope.
 
-    Uses onset-strength autocorrelation with a log-normal tempo prior
-    centered at 120 BPM — the same core approach as ``librosa.beat.beat_track``.
+    Split out from ``detect_tempo`` so that a caller needing both the tempo
+    and something else derived from the envelope (``detect_tempo_with_hint``
+    needs its variation, for confidence) can compute the envelope ONCE.
+    Building it is the dominant cost of detection — roughly half the total —
+    so computing it twice doubles the price of every analysed file.
 
-    Returns 0.0 for silence or signals with no detectable rhythm.
+    Returns 0.0 for signals with no detectable rhythm.
     """
-    # Quick exit: silence check
-    rms = float(np.sqrt(np.mean(y ** 2)))
-    if rms < 1e-6:
-        return 0.0
-
-    onset_env = _onset_strength(y, sr)
-
     if len(onset_env) < 4:
         return 0.0
 
@@ -272,9 +277,18 @@ def detect_tempo(y: np.ndarray, sr: int = 22050) -> float:
     raw_at_best = acf[lags[best_idx]]
     candidate_tempos = [tempo]
 
-    # Multipliers to check: covers octave (2×), half (0.5×), and
-    # third-harmonic relationships (3/2× maps 112→168 ≈ 170 BPM)
-    for multiplier in [2.0, 1.5, 0.5, 2.0 / 3.0]:
+    # Octave only — double and half. The governing rule is to accept
+    # ambiguities that exist in the MUSIC and reject artefacts that exist only
+    # in the algorithm. Half/double is a real disagreement between producers
+    # about one piece of music: the same trap loop is labelled 140 by one pack
+    # and 70 by another, and the same goes for dubstep, footwork and any
+    # halftime section. 3/2 and 2/3 are not that — nobody calls a 124 house
+    # loop "82". That ratio appears only because autocorrelation picked a
+    # three-against-two peak, so accepting it imports the detector's own
+    # failure mode into the answer dressed as musical meaning. The search
+    # layer already refuses these ratios when admitting an unlabelled file;
+    # this is the same rule applied where the number is produced.
+    for multiplier in [2.0, 0.5]:
         alt_tempo = tempo * multiplier
         if alt_tempo < min_bpm or alt_tempo > max_bpm:
             continue
@@ -289,6 +303,17 @@ def detect_tempo(y: np.ndarray, sr: int = 22050) -> float:
 
     # Among plausible candidates, prefer the one closest to a common
     # musical tempo (85, 90, 100, 110, 120, 128, 140, 150, 160, 170, 174, 180).
+    #
+    # LOAD-BEARING, despite looking like a cosmetic nicety, and measurably so:
+    # removing it costs ~13 points of corpus accuracy and replacing it with
+    # "strongest raw autocorrelation" costs ~30, because autocorrelation is
+    # structurally biased toward half-time (a signal repeating every beat also
+    # repeats every two beats, so the half-tempo peak is always at least as
+    # strong) and this list is most of what currently counters that. It is a
+    # crude instrument — the list carries genre assumptions a general-purpose
+    # tool should not need — but do not remove it without a replacement that
+    # holds the accuracy. Run benchmarks/run_tempo_benchmark.py before and
+    # after any change here.
     common_tempos = [85, 90, 100, 110, 120, 128, 140, 150, 160, 170, 174, 180]
 
     def _musical_distance(bpm: float) -> float:
@@ -299,27 +324,70 @@ def detect_tempo(y: np.ndarray, sr: int = 22050) -> float:
     return round(tempo, 1)
 
 
+def detect_tempo(y: np.ndarray, sr: int = 22050) -> float:
+    """Detect BPM from audio signal.
+
+    Uses onset-strength autocorrelation with a log-normal tempo prior
+    centered at 120 BPM — the same core approach as ``librosa.beat.beat_track``.
+
+    Returns 0.0 for silence or signals with no detectable rhythm.
+    """
+    # Quick exit: silence check
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    if rms < 1e-6:
+        return 0.0
+
+    return _tempo_from_onset_env(_onset_strength(y, sr), sr)
+
+
+class TempoResult(NamedTuple):
+    """A tempo, how much to trust it, and where it came from.
+
+    ``source`` exists because ``tempo`` is not always a measurement. When the
+    filename carries an explicit tag the label may be returned verbatim, and
+    without this field a caller cannot tell that apart from an independent
+    detection that happened to agree.
+    """
+
+    tempo: float
+    confidence: float
+    source: str
+    # What the audio actually measured, before any label was substituted for
+    # it. Equal to ``tempo`` when ``source`` is detected; when it is not, this
+    # is the only way a caller can say WHAT detection found instead of merely
+    # that it disagreed -- "the label says 172, detection found 86.1" is
+    # useful to a producer, "detection did not confirm" is not.
+    detected: float = 0.0
+
+
 def detect_tempo_with_hint(
     y: np.ndarray,
     sr: int = 22050,
     filename: str = "",
-) -> tuple[float, float]:
-    """Detect BPM with optional filename hint cross-reference.
+) -> TempoResult:
+    """Detect BPM, cross-referenced against a BPM tag in the filename.
 
-    Returns (tempo, confidence) where confidence is 0.0-1.0.
+    If the filename contains a hint (e.g. "117 BPM") and detection lands on a
+    harmonic of it, the hint is preferred — this corrects autocorrelation's
+    tendency to lock onto sub-harmonics in vocals and other non-percussive
+    content. If detection disagrees entirely, the hint is still trusted
+    (producers don't mislabel BPM) but nothing has corroborated it.
 
-    If the filename contains a BPM hint (e.g. "117 BPM"), the detected
-    tempo is compared against it. If detection lands on a harmonic of
-    the hint (half, double, 2/3, 3/2), the hint is preferred. This
-    corrects for autocorrelation's tendency to lock onto sub-harmonics
-    in vocals and other non-percussive content.
+    Those two cases return a number that was READ, not measured, so the
+    result carries ``source`` to say so. Callers must not describe a
+    label-sourced tempo as detected or confirmed.
     """
-    detected = detect_tempo(y, sr)
+    # One envelope, used for both the tempo and the confidence below.
+    # Detection is dominated by the cost of building this, so computing it
+    # separately for each purpose doubles the price of every analysed file.
+    onset_env = _onset_strength(y, sr)
+
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    detected = 0.0 if rms < 1e-6 else _tempo_from_onset_env(onset_env, sr)
 
     # --- Onset confidence ---
     # Coefficient of variation of the onset envelope: high for percussive
     # content (clear rhythmic pulses), low for smooth/tonal content.
-    onset_env = _onset_strength(y, sr)
     if len(onset_env) > 0 and np.mean(onset_env) > 1e-10:
         cv = float(np.std(onset_env) / np.mean(onset_env))
     else:
@@ -328,10 +396,15 @@ def detect_tempo_with_hint(
     # Map CV to a 0-1 confidence. Empirically:
     #   CV > 1.5 → strong percussive onsets → high confidence
     #   CV < 0.5 → smooth/tonal → low confidence
+    #
+    # Note this measures PERCUSSIVENESS, not correctness: a one-shot decaying
+    # into silence scores the maximum while reporting a meaningless tempo. It
+    # is not a quality gate and must not be used as one — duration is what
+    # rejects one-shots.
     tempo_confidence = min(1.0, max(0.0, (cv - 0.3) / 1.2))
 
     if detected == 0.0:
-        return 0.0, tempo_confidence
+        return TempoResult(0.0, tempo_confidence, SOURCE_DETECTED, 0.0)
 
     # --- Filename hint cross-reference ---
     hint_bpm = extract_bpm_from_filename(filename)
@@ -342,21 +415,28 @@ def detect_tempo_with_hint(
         for hr in harmonic_ratios:
             if abs(ratio - hr) < 0.08:  # within ~8% tolerance
                 if abs(hr - 1.0) > 0.01:
-                    # Detected is a harmonic — prefer the filename hint
-                    return hint_bpm, tempo_confidence
+                    # Detected is a harmonic — prefer the filename hint.
+                    # Detection did independently find the right pulse and
+                    # only got the frame wrong, so this is partial
+                    # corroboration; it is not the same claim as agreement.
+                    return TempoResult(
+                        hint_bpm, tempo_confidence, SOURCE_LABEL_HARMONIC, detected
+                    )
                 else:
                     # Detected matches hint directly — boost confidence
                     tempo_confidence = min(1.0, tempo_confidence + 0.3)
-                    return detected, tempo_confidence
+                    return TempoResult(detected, tempo_confidence, SOURCE_DETECTED, detected)
 
         # Detection disagrees entirely with the filename hint (not a
         # recognisable harmonic). Producers don't mislabel BPM, so trust
         # the explicit tag — but flag low confidence since the algorithm
         # couldn't confirm it independently.
         if 30.0 <= hint_bpm <= 300.0:
-            return hint_bpm, min(tempo_confidence, 0.25)
+            return TempoResult(
+                hint_bpm, min(tempo_confidence, 0.25), SOURCE_LABEL_ONLY, detected
+            )
 
-    return detected, tempo_confidence
+    return TempoResult(detected, tempo_confidence, SOURCE_DETECTED, detected)
 
 
 # ---------------------------------------------------------------------------

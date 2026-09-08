@@ -5,8 +5,12 @@ import numpy as np
 import soundfile as sf
 
 from digr.tools._audio_analysis import (
+    SOURCE_DETECTED,
+    SOURCE_LABEL_HARMONIC,
+    SOURCE_LABEL_ONLY,
     compute_chroma,
     detect_tempo,
+    detect_tempo_with_hint,
     get_duration,
     load_audio,
 )
@@ -205,3 +209,91 @@ class TestGetDuration:
         """Empty signal returns 0.0."""
         y = np.array([], dtype=np.float32)
         assert get_duration(y, sr=22050) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# detect_tempo_with_hint: where the number came from
+# ---------------------------------------------------------------------------
+
+class TestTempoSource:
+    """A reported tempo is not always a measurement.
+
+    When the filename carries an explicit BPM tag, the engine may return that
+    tag verbatim instead of what it measured. Callers must be able to tell the
+    two apart -- presenting a label as "confirmed by detection" compares the
+    label against itself and asserts a check that never happened.
+    """
+
+    def test_no_filename_hint_reports_a_detection(self):
+        y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(y, sr=22050, filename="loop.wav")
+        assert result.source == SOURCE_DETECTED
+        assert result.detected == result.tempo
+
+    def test_hint_agreeing_with_detection_still_reports_a_detection(self):
+        """The hint corroborated the measurement rather than replacing it."""
+        y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(y, sr=22050, filename="loop_120bpm.wav")
+        assert result.source == SOURCE_DETECTED
+        assert result.detected == result.tempo
+
+    def test_hint_that_is_a_harmonic_of_the_detection_is_flagged(self):
+        """The label is returned, but detection did find the right pulse --
+        partial corroboration, which is not the same claim as agreement."""
+        y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(y, sr=22050, filename="loop_240bpm.wav")
+        assert result.source == SOURCE_LABEL_HARMONIC
+        assert result.tempo == 240.0
+        # what was actually measured survives, so a caller can report it
+        assert abs(result.detected - 120.0) < 6.0
+        assert result.detected != result.tempo
+
+    def test_hint_that_detection_contradicts_is_flagged_as_unconfirmed(self):
+        y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
+        result = detect_tempo_with_hint(y, sr=22050, filename="loop_97bpm.wav")
+        assert result.source == SOURCE_LABEL_ONLY
+        assert result.tempo == 97.0
+        assert abs(result.detected - 120.0) < 6.0
+        assert result.confidence <= 0.25
+
+    def test_silence_reports_a_detection_of_nothing(self):
+        y = np.zeros(22050 * 5, dtype=np.float32)
+        result = detect_tempo_with_hint(y, sr=22050, filename="quiet_128bpm.wav")
+        assert result.tempo == 0.0
+        assert result.source == SOURCE_DETECTED
+
+
+class TestSingleOnsetPass:
+    """detect_tempo_with_hint needs the onset envelope for both the tempo and
+    the confidence. Building it is the dominant cost of detection, so it must
+    be built once -- computing it per purpose doubles the price of every file.
+    """
+
+    def test_onset_envelope_is_computed_exactly_once(self, monkeypatch):
+        import digr.tools._audio_analysis as mod
+
+        calls = []
+        real = mod._onset_strength
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(mod, "_onset_strength", counting)
+        y = _make_click_track(bpm=120.0, sr=22050, duration=5.0)
+        mod.detect_tempo_with_hint(y, sr=22050, filename="loop.wav")
+        assert len(calls) == 1, f"onset envelope built {len(calls)} times, expected 1"
+
+    def test_both_entry_points_agree(self):
+        """Splitting the envelope out must not change what is reported: with
+        no filename hint, the two paths are the same computation."""
+        for bpm in (90.0, 120.0, 140.0):
+            y = _make_click_track(bpm=bpm, sr=22050, duration=8.0)
+            assert detect_tempo(y, sr=22050) == detect_tempo_with_hint(
+                y, sr=22050, filename="loop.wav"
+            ).tempo
+
+    def test_silence_agrees_across_both_entry_points(self):
+        y = np.zeros(22050 * 3, dtype=np.float32)
+        assert detect_tempo(y, sr=22050) == 0.0
+        assert detect_tempo_with_hint(y, sr=22050, filename="x.wav").tempo == 0.0
