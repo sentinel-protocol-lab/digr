@@ -186,6 +186,7 @@ BPM_MAX = 300.0
 # measurement, and presenting one as "confirmed by detection" compares a label
 # against itself and tells the user something false.
 SOURCE_DETECTED = "detected"
+SOURCE_LABEL_CONFIRMED = "label_confirmed"  # label kept; detection independently agreed
 SOURCE_LABEL_HARMONIC = "label_harmonic"  # label kept; detection found an octave of it
 SOURCE_LABEL_ONLY = "label_only"  # label kept; detection did not agree at all
 
@@ -254,6 +255,60 @@ def extract_bpm_from_filename(filename: str) -> float | None:
             return bpm
 
     return None
+
+
+# Pitch classes as semitones above C. Both spellings of every accidental are
+# listed because packs use all of them interchangeably -- "Ds", "D#" and "Eb"
+# name the same pitch, and a dedup check that missed that would append a tag
+# the file already carries in a different notation.
+_PITCH_CLASSES = {
+    "c": 0, "cs": 1, "c#": 1, "db": 1, "d": 2, "ds": 3, "d#": 3, "eb": 3,
+    "e": 4, "fb": 4, "f": 5, "fs": 6, "f#": 6, "gb": 6, "g": 7, "gs": 8,
+    "g#": 8, "ab": 8, "a": 9, "as": 10, "a#": 10, "bb": 10, "b": 11, "cb": 11,
+}
+
+# A key tag is a pitch name standing alone as a token, optionally followed by a
+# mode. Requiring a token boundary is what keeps "As" out of "Assault" and the
+# "F" of "F.wav" apart from the "f" inside "Reverb_fx".
+_KEY_TOKEN_RE = re.compile(
+    r'(?:^|[\s_\-\[\(])([A-Ga-g](?:[#sb])?)(?:[\s_\-]?(?:m|min|minor|maj|major))?'
+    r'(?=$|[\s_\-\]\)\.])'
+)
+
+
+def extract_key_from_filename(filename: str) -> int | None:
+    """Extract a musical key from a filename as a pitch class (0=C .. 11=B).
+
+    Returns the pitch class only -- major/minor is parsed to consume the
+    suffix, then discarded, because the caller appends a bare pitch name and
+    only needs to know whether that pitch is already stated.
+
+    Enharmonics normalise to one number, so "D#m" and "Ds" both return 3.
+    Returns None when no token reads as a key.
+
+    Lives beside ``extract_bpm_from_filename`` and for the same reason: pure
+    stdlib, so the free path can use it without importing the audio extra.
+    """
+    if not filename:
+        return None
+
+    name = re.sub(r'\.[^.]+$', '', filename)
+
+    # Last match wins: producers append key tags to the end of a name, so when
+    # a stem carries more than one candidate the trailing one is the tag and an
+    # earlier one is far more likely a word that happens to look like a pitch.
+    found = None
+    for match in _KEY_TOKEN_RE.finditer(name):
+        token = match.group(1)
+        # A bare single letter is only a key when written in the conventional
+        # upper case. Lower case is how ordinary words are spelled, and "a"
+        # and "b" in particular are far more often English than music.
+        if len(token) == 1 and not token.isupper():
+            continue
+        pitch = _PITCH_CLASSES.get(token.lower())
+        if pitch is not None:
+            found = pitch
+    return found
 
 
 # ---------------------------------------------------------------------------

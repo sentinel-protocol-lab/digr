@@ -8,6 +8,7 @@ from ._query import (
     BPM_MAX,
     BPM_MIN,
     SOURCE_DETECTED,
+    SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
     BpmTarget,
@@ -115,6 +116,15 @@ def _format_bpm_line(
         )
     found = "" if detected is None else f" (found {detected:.1f})"
     if label is not None:
+        if source == SOURCE_LABEL_CONFIRMED:
+            # Detection agreed, so confirmation may be claimed -- but the
+            # number shown as the confirmation must be the MEASURED one.
+            # ``tempo`` is the label here, and comparing a label against
+            # itself always agrees; printing it as its own confirmation is
+            # the exact falsehood the rest of this function exists to avoid.
+            if detected is None:
+                return f"{label:.0f} (confirmed by detection)"
+            return f"{label:.0f} (confirmed by detection: {detected:.1f})"
         if source == SOURCE_LABEL_HARMONIC:
             return (
                 f"{label:.0f} (labelled) — detection found a harmonic of it"
@@ -125,6 +135,11 @@ def _format_bpm_line(
         if abs(tempo - label) <= label * BPM_LABEL_TOLERANCE:
             return f"{label:.0f} (confirmed by detection: {tempo:.1f})"
         return f"{label:.0f} (labelled) — detected {tempo:.1f}, trusting the label"
+    if source == SOURCE_LABEL_CONFIRMED:
+        # Same "no label to show it against" case as below, but detection did
+        # agree here, so "not detected" would understate what happened.
+        found_here = "" if detected is None else f": {detected:.1f}"
+        return f"{tempo:.0f} — from the filename, confirmed by detection{found_here}"
     if source != SOURCE_DETECTED:
         # No range filter ran, so there is no label to present this against --
         # but the number still came off the filename, and the surrounding

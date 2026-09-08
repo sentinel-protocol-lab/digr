@@ -21,10 +21,18 @@ from scipy.signal import resample_poly, stft as scipy_stft
 # are unaffected.
 from ._query import (
     SOURCE_DETECTED,
+    SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
     extract_bpm_from_filename,
 )
+
+# How close detection must land to a filename label before the two count as
+# agreeing. Deliberately tighter than the harmonic tolerance below it: this
+# decides what Digr CLAIMS, and claiming agreement on an 8% disagreement is
+# how "confirmed by detection" ended up meaning nothing. At 145 BPM, 8% is
+# ±11.6 BPM.
+AGREEMENT_TOLERANCE = 0.04
 
 
 # ---------------------------------------------------------------------------
@@ -367,15 +375,23 @@ def detect_tempo_with_hint(
 ) -> TempoResult:
     """Detect BPM, cross-referenced against a BPM tag in the filename.
 
-    If the filename contains a hint (e.g. "117 BPM") and detection lands on a
-    harmonic of it, the hint is preferred — this corrects autocorrelation's
-    tendency to lock onto sub-harmonics in vocals and other non-percussive
-    content. If detection disagrees entirely, the hint is still trusted
-    (producers don't mislabel BPM) but nothing has corroborated it.
+    When the filename carries a hint (e.g. "117 BPM") that hint is what comes
+    back, in all three of the cases below; ``source`` says how much detection
+    had to say about it, and ``detected`` carries what was measured.
 
-    Those two cases return a number that was READ, not measured, so the
-    result carries ``source`` to say so. Callers must not describe a
-    label-sourced tempo as detected or confirmed.
+    ==================  ==========  ==========================================
+    detection vs hint   ``source``  meaning
+    ==================  ==========  ==========================================
+    within 4%           confirmed   measured independently and agreed
+    a harmonic of it    harmonic    found the right pulse, the wrong frame
+    neither             label_only  could not corroborate the label at all
+    no hint at all      detected    ``tempo`` is a measurement
+    ==================  ==========  ==========================================
+
+    Only the last row returns a number that was MEASURED; the rest return one
+    that was READ. Callers must not describe a label-sourced tempo as
+    detected, and must show ``detected`` — never ``tempo`` — when reporting
+    what confirmed it, since ``tempo`` is by then the label itself.
     """
     # One envelope, used for both the tempo and the confidence below.
     # Detection is dominated by the cost of building this, so computing it
@@ -407,25 +423,47 @@ def detect_tempo_with_hint(
         return TempoResult(0.0, tempo_confidence, SOURCE_DETECTED, 0.0)
 
     # --- Filename hint cross-reference ---
+    #
+    # Whenever a label exists the label is what gets returned. It is the
+    # producer's statement about their own file; detection is an estimate.
+    # When the two nearly agree the estimate adds CONFIDENCE, not PRECISION,
+    # so it must not overwrite the statement — a 145 that measures 136 is a
+    # file labelled 145, not a file at 136.
+    #
+    # Note the inversion this corrects. The harmonic branch already preferred
+    # the label, in the case where detection was clearly wrong; the near-match
+    # branch preferred the algorithm, in the case where detection was nearly
+    # right. It trusted itself precisely where it was least justified.
+    #
+    # ``detected`` carries what was measured either way, so a caller that
+    # wants to report the real number still can.
     hint_bpm = extract_bpm_from_filename(filename)
     if hint_bpm is not None and hint_bpm > 0:
-        # Check if detected is a harmonic of the hint
         ratio = detected / hint_bpm
-        harmonic_ratios = [0.5, 2.0 / 3.0, 1.0, 1.5, 2.0]
+
+        # Agreement is decided first, and at a tighter tolerance than the
+        # harmonic test. A tempo 4-8% off the label is neither agreement nor a
+        # harmonic, so it falls through to "could not confirm" rather than
+        # being claimed as either.
+        if abs(ratio - 1.0) < AGREEMENT_TOLERANCE:
+            return TempoResult(
+                hint_bpm,
+                min(1.0, tempo_confidence + 0.3),
+                SOURCE_LABEL_CONFIRMED,
+                detected,
+            )
+
+        # Detected is a harmonic — keep the filename hint. Detection did
+        # independently find the right pulse and only got the frame wrong, so
+        # this is partial corroboration; it is not the same claim as
+        # agreement. The list stays permissive: a wider net here only keeps
+        # the producer's label more often, which is the safe direction.
+        harmonic_ratios = [0.5, 2.0 / 3.0, 1.5, 2.0]
         for hr in harmonic_ratios:
             if abs(ratio - hr) < 0.08:  # within ~8% tolerance
-                if abs(hr - 1.0) > 0.01:
-                    # Detected is a harmonic — prefer the filename hint.
-                    # Detection did independently find the right pulse and
-                    # only got the frame wrong, so this is partial
-                    # corroboration; it is not the same claim as agreement.
-                    return TempoResult(
-                        hint_bpm, tempo_confidence, SOURCE_LABEL_HARMONIC, detected
-                    )
-                else:
-                    # Detected matches hint directly — boost confidence
-                    tempo_confidence = min(1.0, tempo_confidence + 0.3)
-                    return TempoResult(detected, tempo_confidence, SOURCE_DETECTED, detected)
+                return TempoResult(
+                    hint_bpm, tempo_confidence, SOURCE_LABEL_HARMONIC, detected
+                )
 
         # Detection disagrees entirely with the filename hint (not a
         # recognisable harmonic). Producers don't mislabel BPM, so trust

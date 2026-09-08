@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mido
 
-from ._query import SOURCE_DETECTED, SOURCE_LABEL_HARMONIC
+from ._query import SOURCE_DETECTED, SOURCE_LABEL_CONFIRMED, SOURCE_LABEL_HARMONIC
 from ._shared import audio_warming_message, identify_library, require_pro
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -93,6 +93,16 @@ async def analyze_sample(filepath: str) -> str:
         result = f"Analysis of: {file_path.name}\n\n"
         if duration < 3.0 and tempo > 0.0:
             result += "BPM: N/A (sample too short for reliable tempo detection)\n"
+        elif tempo_result.source == SOURCE_LABEL_CONFIRMED and tempo > 0.0:
+            # The number is the filename's, but detection measured the file
+            # and landed on it. That is genuine corroboration, so saying
+            # "read from the filename, not detected" would undersell it --
+            # while still showing the measurement rather than echoing the
+            # label back as its own evidence.
+            result += (
+                f"BPM: {tempo:.1f} — labelled, confirmed by detection "
+                f"({tempo_result.detected:.1f})\n"
+            )
         elif tempo_result.source != SOURCE_DETECTED and tempo > 0.0:
             # The number came off the filename, not the audio. This tool exists
             # to answer "what tempo is this file?", so quietly echoing the name

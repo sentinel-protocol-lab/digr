@@ -7,6 +7,7 @@ from digr.tools._query import (
     compound_join,
     expansions,
     extract_bpm_from_filename,
+    extract_key_from_filename,
     file_tokens,
     match_query,
     parse_query,
@@ -360,6 +361,52 @@ class TestExtractBpmFromFilename:
     def test_no_bpm(self):
         assert extract_bpm_from_filename("kick_808.wav") is None
         assert extract_bpm_from_filename("") is None
+
+
+class TestExtractKeyFromFilename:
+    """Exists so rename_with_metadata can tell whether a file already states
+    its key. A false positive means declining to append -- recoverable. A
+    false negative appends a tag the file already carries -- not recoverable,
+    since the rename is permanent. The rules below lean accordingly.
+    """
+
+    def test_real_pack_conventions(self):
+        assert extract_key_from_filename("FPV_Kit_Drop_Chords_D#m_145BPM.wav") == 3
+        assert extract_key_from_filename("Aisha - The Creator D minor 117 BPM.wav") == 2
+        assert extract_key_from_filename("061 OSRSRW F# - Zenhiser.wav") == 6
+        assert extract_key_from_filename("Ghosthack_Bass_38_Am.wav") == 9
+
+    def test_enharmonics_normalise_to_one_pitch(self):
+        """"Ds" is what this tool appends, "D#" and "Eb" are what packs write.
+        All three name the same pitch, so the dedup must see them as equal."""
+        assert (
+            extract_key_from_filename("loop_Ds.wav")
+            == extract_key_from_filename("loop_D#.wav")
+            == extract_key_from_filename("loop_Ebm.wav")
+            == 3
+        )
+
+    def test_words_that_merely_start_with_a_pitch_letter_are_not_keys(self):
+        assert extract_key_from_filename("Creator_vocal.wav") is None
+        assert extract_key_from_filename("FX/Abduction_FX.wav") is None
+        assert extract_key_from_filename("Big_Reverb_Tail.wav") is None
+        assert extract_key_from_filename("MTIA_Back_To_Life.wav") is None
+
+    def test_a_bare_lower_case_letter_is_a_word_not_a_key(self):
+        """Keys are written in upper case by convention. "a" and "b" standing
+        alone are far more often English than music."""
+        assert extract_key_from_filename("MTIA_BGV Ch (dry).wav") is None
+        assert extract_key_from_filename("vox b sample.wav") is None
+        assert extract_key_from_filename("vox B sample.wav") == 11
+
+    def test_the_trailing_tag_wins(self):
+        """Key tags are appended, so when a stem carries two candidates the
+        later one is the tag and the earlier is a coincidence."""
+        assert extract_key_from_filename("A_Tribe_Called_Loop_Gm.wav") == 7
+
+    def test_no_key(self):
+        assert extract_key_from_filename("kick_808.wav") is None
+        assert extract_key_from_filename("") is None
 
 
 # ---------------------------------------------------------------------------
