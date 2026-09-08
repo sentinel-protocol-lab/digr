@@ -4,6 +4,7 @@ from pathlib import Path
 
 import mido
 
+from ._query import SOURCE_DETECTED, SOURCE_LABEL_HARMONIC
 from ._shared import audio_warming_message, identify_library, require_pro
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -70,9 +71,9 @@ async def analyze_sample(filepath: str) -> str:
         y, sr = audio.load_audio(str(file_path), duration=30)
 
         # Detect BPM (with filename hint cross-reference)
-        tempo, tempo_confidence = audio.detect_tempo_with_hint(
-            y, sr=sr, filename=file_path.name
-        )
+        tempo_result = audio.detect_tempo_with_hint(y, sr=sr, filename=file_path.name)
+        tempo = tempo_result.tempo
+        tempo_confidence = tempo_result.confidence
 
         # Detect key using chromagram analysis
         chroma = audio.compute_chroma(y, sr=sr)
@@ -92,6 +93,19 @@ async def analyze_sample(filepath: str) -> str:
         result = f"Analysis of: {file_path.name}\n\n"
         if duration < 3.0 and tempo > 0.0:
             result += "BPM: N/A (sample too short for reliable tempo detection)\n"
+        elif tempo_result.source != SOURCE_DETECTED and tempo > 0.0:
+            # The number came off the filename, not the audio. This tool exists
+            # to answer "what tempo is this file?", so quietly echoing the name
+            # back would be answering a different question than the one asked.
+            qualifier = (
+                "detection found a harmonic of it"
+                if tempo_result.source == SOURCE_LABEL_HARMONIC
+                else "detection did not agree"
+            )
+            result += (
+                f"BPM: {tempo:.1f} — read from the filename, not detected "
+                f"({qualifier}: {tempo_result.detected:.1f})\n"
+            )
         elif tempo_confidence < 0.3 and tempo > 0.0:
             result += f"BPM: {tempo:.1f} (low confidence — weak rhythmic content)\n"
         else:

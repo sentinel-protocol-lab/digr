@@ -295,9 +295,9 @@ async def rename_with_metadata(
                 y, sr = audio_engine.load_audio(str(src), duration=30)
 
                 if include_bpm:
-                    tempo, _ = audio_engine.detect_tempo_with_hint(
+                    tempo = audio_engine.detect_tempo_with_hint(
                         y, sr=sr, filename=src.name
-                    )
+                    ).tempo
                     if tempo > 0:
                         parts.append(f"{tempo:.0f}bpm")
 

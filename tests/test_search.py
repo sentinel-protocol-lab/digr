@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from digr.tools._query import BpmTarget
+from digr.tools._audio_analysis import TempoResult
+from digr.tools._query import (
+    SOURCE_DETECTED,
+    SOURCE_LABEL_HARMONIC,
+    SOURCE_LABEL_ONLY,
+    BpmTarget,
+)
 from digr.tools.search import (
     DETECTION_BUDGET_FILES,
     ONE_SHOT_MAX_DURATION,
@@ -339,6 +345,52 @@ class TestFormatBpmLine:
         """No-range mode: behaves exactly as before this feature existed."""
         assert _format_bpm_line(tempo=117.5, duration=8.0, label=None) == "117.5"
 
+    def test_label_sourced_tempo_never_claims_confirmation(self):
+        """The tempo IS the label here -- the engine read it off the filename
+        rather than measuring it. Comparing it against the label would always
+        agree, so claiming confirmation asserts a check that never ran."""
+        line = _format_bpm_line(
+            tempo=172.0,
+            duration=8.0,
+            label=172.0,
+            source=SOURCE_LABEL_ONLY,
+            detected=86.1,
+        )
+        assert "confirmed by detection" not in line
+        assert line == "172 (labelled) — detection could not confirm it (found 86.1)"
+
+    def test_harmonic_label_reports_partial_corroboration(self):
+        """Detection found the right pulse and the wrong frame. That is more
+        than nothing and less than agreement, so it says which."""
+        line = _format_bpm_line(
+            tempo=172.0,
+            duration=8.0,
+            label=172.0,
+            source=SOURCE_LABEL_HARMONIC,
+            detected=86.1,
+        )
+        assert "confirmed by detection" not in line
+        assert "harmonic" in line
+        assert "86.1" in line
+
+    def test_unlabelled_but_filename_sourced_tempo_says_so(self):
+        """No range filter ran, so there is no label to show it against -- but
+        the number still came off the name and must not read as analysis."""
+        line = _format_bpm_line(
+            tempo=128.0, duration=8.0, label=None, source=SOURCE_LABEL_ONLY
+        )
+        assert line == "128 — read from the filename, not detected"
+
+    def test_a_genuine_detection_still_confirms_a_label(self):
+        """The honest case is unchanged: this is what the wording is FOR."""
+        assert _format_bpm_line(
+            tempo=172.3,
+            duration=8.0,
+            label=172.0,
+            source=SOURCE_DETECTED,
+            detected=172.3,
+        ) == "172 (confirmed by detection: 172.3)"
+
 
 # ---------------------------------------------------------------------------
 # Detection-discovery of unlabelled files (Phase 2 #3b)
@@ -441,7 +493,10 @@ class _FakeAudio:
         return [0.0], 22050
 
     def detect_tempo_with_hint(self, y, sr=22050, filename=""):
-        return self._tempos[filename], 1.0
+        # Unlabelled candidates carry no filename BPM by definition, so the
+        # engine always reports a genuine detection for them.
+        tempo = self._tempos[filename]
+        return TempoResult(tempo, 1.0, SOURCE_DETECTED, tempo)
 
 
 class TestDiscoverUnlabelled:
@@ -613,3 +668,37 @@ async def test_bpm_range_shows_both_sections_and_caches_in_displayed_order(
         "TSP_NOISIA_172_drum_loop_shakerloopedit.wav",
     ]
     assert cached_names[2] == "amen_chop_beta.wav"
+
+
+@pytest.mark.asyncio
+async def test_mislabelled_file_is_never_reported_as_confirmed(tmp_path, pro_license):
+    """End-to-end with REAL decoded audio, for the circular-confirmation bug.
+
+    A genuine 172 loop carrying an explicit and WRONG "100bpm" tag. Because the
+    tag is explicit, the engine returns 100 as the tempo -- so comparing it
+    against the label 100 always agrees, and the display used to announce
+    "100 (confirmed by detection: 100.0)". Nothing confirmed anything: the
+    label was compared against itself.
+
+    Only real audio reaches this. The fake-bytes tests fail to decode and take
+    the exception branch, which is exactly why the bug shipped.
+    """
+    import soundfile as sf
+
+    from digr.tools._shared import set_libraries
+
+    y = _synth_break_loop(bpm=172.0, bars=4)
+
+    lib = tmp_path / "Loops"
+    lib.mkdir()
+    sf.write(str(lib / "amen_chop_100bpm.wav"), y, 22050)
+    set_libraries({"Loops": tmp_path})
+
+    result = await search_samples_by_bpm("", min_bpm=95, max_bpm=105)
+
+    assert "amen_chop_100bpm.wav" in result
+    assert "confirmed by detection" not in result, (
+        "a tempo read off the filename was presented as an independent "
+        f"detection:\n{result}"
+    )
+    assert "could not confirm" in result

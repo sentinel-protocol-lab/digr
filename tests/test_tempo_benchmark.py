@@ -25,7 +25,14 @@ from tempo_corpus import score
 
 # Below the measured result by enough to absorb cross-platform numeric drift,
 # above the known-bad variants by enough to still catch them.
-MINIMUM_EXACT_PCT = 52.0
+MINIMUM_EXACT_PCT = 58.0
+
+# The detector considers harmonics of its best autocorrelation peak. It accepts
+# only the octave (half and double), because half/double is a real disagreement
+# between producers about one piece of music, while 3/2 and 2/3 exist only in
+# the autocorrelation -- nobody calls a 124 house loop "82". Re-admitting those
+# ratios roughly doubles this count, so it is a direct guard on that rule.
+MAX_THIRD_RATIO_ERRORS = 4
 
 # The corpus is fixed, so its size is too. A change here means the corpus
 # itself moved, which invalidates comparison against every recorded figure.
@@ -71,6 +78,16 @@ def test_tempo_detection_accuracy_has_not_regressed(result):
     assert result["exact_pct"] >= MINIMUM_EXACT_PCT, (
         f"tempo detection fell to {result['exact_pct']:.1f}%, below the "
         f"{MINIMUM_EXACT_PCT}% floor.{_table(result)}"
+    )
+
+
+def test_three_halves_ratios_are_not_reported(result):
+    """Guards the octave-only rule where tempos are produced, matching the
+    rule the search layer already applies when admitting an unlabelled file."""
+    third_ratio = result["breakdown"].get("3/2", 0) + result["breakdown"].get("2/3", 0)
+    assert third_ratio <= MAX_THIRD_RATIO_ERRORS, (
+        f"{third_ratio} results landed on a 3/2 or 2/3 ratio, above the "
+        f"{MAX_THIRD_RATIO_ERRORS} allowed.{_table(result)}"
     )
 
 

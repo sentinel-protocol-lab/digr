@@ -4,7 +4,16 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
-from ._query import BPM_MAX, BPM_MIN, BpmTarget, file_tokens, parse_query
+from ._query import (
+    BPM_MAX,
+    BPM_MIN,
+    SOURCE_DETECTED,
+    SOURCE_LABEL_HARMONIC,
+    SOURCE_LABEL_ONLY,
+    BpmTarget,
+    file_tokens,
+    parse_query,
+)
 from ._shared import (
     audio_warming_message,
     get_libraries,
@@ -76,9 +85,22 @@ def _resolve_bpm_filter(
     return BpmTarget(max(BPM_MIN, low), min(BPM_MAX, high))
 
 
-def _format_bpm_line(tempo: float, duration: float, label: float | None) -> str:
+def _format_bpm_line(
+    tempo: float,
+    duration: float,
+    label: float | None,
+    source: str = SOURCE_DETECTED,
+    detected: float | None = None,
+) -> str:
     """Compose the BPM line for one match: one-shot honesty first, then
     labelled-primary/detected-confirmation when a range filter applied.
+
+    ``source`` decides whether confirmation may be CLAIMED at all. When a
+    filename carries an explicit BPM tag the engine can return that tag as the
+    tempo, in which case comparing it against the label is comparing the label
+    against itself -- it always agrees, and saying "confirmed by detection"
+    asserts an independent check that never happened. Only a genuinely
+    measured tempo can confirm anything.
 
     Kept separate from the search loop (which does file I/O and exception
     handling) so this decision -- the actual tricky part -- can be tested
@@ -91,10 +113,23 @@ def _format_bpm_line(tempo: float, duration: float, label: float | None) -> str:
             if label is not None
             else "one-shot — no tempo"
         )
+    found = "" if detected is None else f" (found {detected:.1f})"
     if label is not None:
+        if source == SOURCE_LABEL_HARMONIC:
+            return (
+                f"{label:.0f} (labelled) — detection found a harmonic of it"
+                f"{found}, not an independent confirmation"
+            )
+        if source == SOURCE_LABEL_ONLY:
+            return f"{label:.0f} (labelled) — detection could not confirm it{found}"
         if abs(tempo - label) <= label * BPM_LABEL_TOLERANCE:
             return f"{label:.0f} (confirmed by detection: {tempo:.1f})"
         return f"{label:.0f} (labelled) — detected {tempo:.1f}, trusting the label"
+    if source != SOURCE_DETECTED:
+        # No range filter ran, so there is no label to present this against --
+        # but the number still came off the filename, and the surrounding
+        # output promises analysis. Say which it was.
+        return f"{tempo:.0f} — read from the filename, not detected"
     return f"{tempo:.1f}"
 
 
@@ -194,15 +229,22 @@ def _label_bpm(path: str, library_name: str, target: BpmTarget) -> float | None:
     return float(in_range[0]) if in_range else None
 
 
-def _decode_and_detect(audio, path: str, filename: str) -> tuple[float, float]:
-    """Load and detect once -- returns (tempo, duration). Shared by the
-    labelled-confirmation pass and the unlabelled-detection pass so both go
-    through identical decode logic; raises on decode failure, which callers
-    handle."""
+def _decode_and_detect(audio, path: str, filename: str):
+    """Load and detect once -- returns (tempo, duration, source, detected).
+
+    Shared by the labelled-confirmation pass and the unlabelled-detection pass
+    so both go through identical decode logic; raises on decode failure, which
+    callers handle.
+
+    ``source`` and ``detected`` are carried out because ``tempo`` is not
+    always a measurement: when the filename holds an explicit BPM tag the
+    engine may return that tag verbatim. A caller that presents such a value
+    as detected would be comparing the label against itself.
+    """
     y, sr = audio.load_audio(path, duration=15)
     duration = len(y) / sr
-    tempo, _ = audio.detect_tempo_with_hint(y, sr=sr, filename=filename)
-    return tempo, duration
+    result = audio.detect_tempo_with_hint(y, sr=sr, filename=filename)
+    return result.tempo, duration, result.source, result.detected
 
 
 class _ResultRow(NamedTuple):
@@ -232,8 +274,8 @@ def _confirm_labelled(
     filename = Path(path).name
     folder = Path(path).parent.name
     try:
-        tempo, duration = _decode_and_detect(audio, path, filename)
-        bpm_line = _format_bpm_line(tempo, duration, label)
+        tempo, duration, source, detected = _decode_and_detect(audio, path, filename)
+        bpm_line = _format_bpm_line(tempo, duration, label, source, detected)
     except Exception as e:
         bpm_line = f"Unable to detect ({e})"
     return _ResultRow(path, library_name, filename, folder, bpm_line)
@@ -283,7 +325,7 @@ def _discover_unlabelled(
             continue
         filename = Path(path).name
         try:
-            tempo, _ = _decode_and_detect(audio, path, filename)
+            tempo, _, _, _ = _decode_and_detect(audio, path, filename)
         except Exception:
             decoded_count += 1
             continue
@@ -375,8 +417,8 @@ async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
         folder = Path(path).parent.name
 
         try:
-            tempo, duration = _decode_and_detect(audio, path, filename)
-            bpm_line = _format_bpm_line(tempo, duration, label=None)
+            tempo, duration, source, _ = _decode_and_detect(audio, path, filename)
+            bpm_line = _format_bpm_line(tempo, duration, None, source)
 
             result += f"{i}. {filename}\n"
             result += f"   BPM: {bpm_line}\n"
