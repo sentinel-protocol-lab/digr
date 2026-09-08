@@ -23,7 +23,7 @@ All destructive organize tools use preview-then-execute:
 1. First call with `confirm=False` (default) → returns PREVIEW text
 2. Second call with `confirm=True` → executes the operation
 
-Tools using this pattern: `collect_samples`, `copy_samples`, `collect_search_results`, `rename_with_metadata`, `sort_samples`
+Tools using this pattern: `collect_samples`, `copy_samples`, `collect_search_results`, `rename_with_metadata`, `sort_samples`, `undo_rename`
 
 ### MIDI File Reading
 Use `read_midi(filepath, track_index=-1)` first to list available tracks, then call again with the specific track index to get notes.
@@ -46,6 +46,7 @@ The server also accepts pipe-delimited, newline-delimited, and single path strin
 - `collect_samples` — copy/move by keyword (with preview)
 - `copy_samples` — copy/move specific files by path (with preview)
 - `collect_search_results` — copy/move from last search by result number (with preview)
+- `undo_rename` — reverse the most recent `rename_with_metadata` batch (with preview). **Free by design** — undoing damage must never sit behind a licence, since a lapsed key would strand a user mid-rename
 - `activate_license` — save a pasted Pro key and unlock Pro in-session (no restart)
 
 ### Pro Tools (require license key)
@@ -76,6 +77,7 @@ search_samples(keyword="reverse cymbal") → analyze_sample(filepath="...") → 
 
 - **A filename's BPM label always wins over detection** — the label is the producer's statement about their own file; detection is an estimate. When they agree the estimate adds confidence, not precision, so it never overwrites the label. `TempoResult.source` says which of the four cases applied (`detected`, `label_confirmed`, `label_harmonic`, `label_only`) and `TempoResult.detected` always carries what was measured — display code must show `detected`, never `tempo`, when reporting what confirmed a label
 - **`rename_with_metadata` never appends a tag the filename already carries** — including across notations, so a stem ending `D#m` blocks an appended `Ds`
+- **Every rename is logged and reversible** — batches append to `<config dir>/rename_history.jsonl` (capped at the most recent 50), reversed by `undo_rename`. Prefix-only renames are logged too. Undo skips and reports rather than guessing: a file moved since, or an original name now occupied, is left alone and **kept in the history so a later `undo_rename` can retry it**
 - **BPM detection halves/doubles on short samples** — autocorrelation limitation, not a bug
 - **One-shots return 0.0 BPM** — expected behavior for non-rhythmic content
 - **Cannot load samples into Simpler/Sampler via MCP** — use `ppal-create-clip` with `sampleFile` for audio clips instead
