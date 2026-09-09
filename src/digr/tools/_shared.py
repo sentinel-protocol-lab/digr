@@ -1,6 +1,8 @@
 """Shared utilities for all tools: search engine, file helpers, state cache, license gating."""
 
+import heapq
 import json
+import os
 import shutil
 import sys
 import threading
@@ -8,12 +10,30 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._query import BpmTarget, file_tokens, match_query, parse_query, rank_key, with_bpm_filter
+from ._query import (
+    BpmTarget,
+    file_tokens,
+    match_query,
+    parse_query,
+    prefilter_hits,
+    prefilter_probes,
+    rank_key,
+    strip_separators,
+    with_bpm_filter,
+)
 
-# Supported audio and MIDI file extensions
-AUDIO_EXTENSIONS = ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.flac", "*.ogg"]
-MIDI_EXTENSIONS = ["*.mid", "*.midi"]
-ALL_EXTENSIONS = AUDIO_EXTENSIONS + MIDI_EXTENSIONS
+# Supported audio and MIDI file extensions, as suffixes rather than glob
+# patterns: search makes ONE traversal and tests each filename against this
+# set, instead of one rglob pass per extension. The set is the shared
+# definition of "a file Digr can work with" -- browse.py still keeps its own
+# hardcoded copies and should be pointed here (digr-STATUS.md §Y-6).
+AUDIO_SUFFIXES = frozenset({".wav", ".aif", ".aiff", ".mp3", ".flac", ".ogg"})
+MIDI_SUFFIXES = frozenset({".mid", ".midi"})
+SAMPLE_SUFFIXES = AUDIO_SUFFIXES | MIDI_SUFFIXES
+
+# str.endswith takes a tuple and does the whole test in C, which is what the
+# per-file check in the walk actually uses. Sorted only for a stable repr.
+_SUFFIX_MATCH = tuple(sorted(SAMPLE_SUFFIXES))
 
 # Cache for last search results so collect_search_results can reference them by index
 _last_search_results: list[tuple[str, str]] = []  # [(path, library_name), ...]
@@ -278,10 +298,16 @@ def require_pro(tool_name: str) -> str | None:
         f"  - File: {key_file}\n"
         "  - Environment: DIGR_LICENSE_KEY=your-key-here"
     )
+    # MAINTENANCE: this list is hardcoded and nothing ties it to the tool
+    # registrations in server.py, which is why it silently went stale once
+    # already (it missed undo_rename -- the one tool that reverses a bad
+    # rename, free precisely so a blocked user can still reach it, and the
+    # single most useful thing to name at the moment someone is blocked).
+    # Adding a free tool means editing here too.
     parts.append(
         "Free tools available: search_samples, list_libraries, list_folders, "
         "count_samples_in_folder, list_all_samples_in_folder, collect_samples, "
-        "copy_samples, collect_search_results"
+        "copy_samples, collect_search_results, undo_rename, activate_license"
     )
     return "\n\n".join(parts)
 
@@ -307,6 +333,11 @@ class SearchOutcome:
     ``partial`` is the Stage 8 fallback: when no file satisfied every term we
     return the files that satisfied the largest subset, and name which term
     was dropped, instead of a dead end.
+
+    ``deadline_reached`` says the walk was cut short by the wall-clock ceiling
+    before every library was seen. It exists so the tools can SAY SO: a
+    truncated search that reads like a complete one is the defect this whole
+    module was rewritten to remove.
     """
 
     matches: list[tuple[str, str]]
@@ -314,11 +345,87 @@ class SearchOutcome:
     matched_terms: tuple[str, ...] = ()
     missing_terms: tuple[str, ...] = ()
     partial_total: int = 0
+    deadline_reached: bool = False
 
 
 # Ceiling on partial candidates held in memory while no full match has been
 # seen. Only ever read when the search finds nothing at all.
 _PARTIAL_POOL_CAP = 2000
+
+# Wall-clock ceiling on one search across ALL libraries.
+#
+# The per-library cap used to bound time as well as memory, and it did so by
+# BIASING the results -- stopping the walk meant the answer was "the first N
+# files", never "the best N". The heap below bounds memory on its own, so the
+# cap is out of the timing business and this takes over: a limit that costs
+# completeness only when it actually fires, and says so when it does.
+#
+# 60s is deliberately loose. A full ranked walk of a 351k-file library on a
+# warm USB SSD measured ~3.5s typical and ~8.2s for a query matching most of
+# the library -- and that drive is close to BEST case (digr-STATUS.md §V-9).
+# The number that matters at the other end is Claude Desktop's 240s tool-call
+# timeout: this has to fire well before that, so a cold or network drive
+# degrades into a ranked partial answer instead of a dead client. Do NOT tune
+# it down towards the measured figures; they are not the bad case.
+SEARCH_DEADLINE_SECONDS = 60.0
+
+
+def _ignore_walk_error(error: OSError) -> None:
+    """Swallow an unreadable directory and let the traversal continue.
+
+    With one walk per library instead of one per extension, an exception that
+    escapes would abandon the ENTIRE library -- a single permission-denied
+    subtree would silently cost every result below it. os.walk's onerror hook
+    keeps the failure local to the directory that raised.
+    """
+
+
+def walk_samples(library: Path):
+    """Yield ``(path, path_relative_to_library)`` for every sample under ``library``.
+
+    ONE traversal, filtered by suffix -- replacing a pass per extension. That
+    was not only ~5x slower on a real library, it also gave the extensions an
+    ORDER: ``*.mid`` was globbed seventh of eight, so on a library that is
+    half MIDI the per-library cap was routinely spent on .wav files before a
+    single .mid was seen. There is no ordering left to starve.
+
+    The suffix test is case-insensitive, where ``rglob("*.wav")`` was not. On
+    the measured library that alone makes 83 previously invisible files
+    searchable.
+
+    The relative path is yielded alongside because the prefilter needs the
+    same text ``file_tokens`` sees -- folders relative to the library root, so
+    the machine's own path can never contribute a match.
+    """
+    root = str(library)
+    for dirpath, _dirnames, filenames in os.walk(root, onerror=_ignore_walk_error):
+        dir_path = Path(dirpath)
+        relative_dir = os.path.relpath(dirpath, root)
+        prefix = "" if relative_dir == "." else f"{relative_dir}/"
+        for filename in filenames:
+            if filename.lower().endswith(_SUFFIX_MATCH):
+                yield dir_path / filename, prefix + filename
+
+
+class _WorstFirst:
+    """A ``rank_key`` with its ordering REVERSED, for use in a heap.
+
+    ``heapq`` is a min-heap and ``rank_key`` ascends from best to worst, so a
+    plain heap would keep the best entry at the root -- the opposite of what a
+    bounded top-K needs. Reversing ``__lt__`` puts the WORST kept entry at the
+    root, which is the one a better candidate should evict.
+
+    The key already carries the path as its third element, so nothing else
+    needs storing.
+    """
+
+    __slots__ = ("key",)
+
+    def __init__(self, key: tuple[float, int, str]) -> None:
+        self.key = key
+
+    def __lt__(self, other: "_WorstFirst") -> bool:
+        return self.key > other.key
 
 
 def _rank_paths(scored: list[tuple[float, str]]) -> list[str]:
@@ -379,60 +486,99 @@ def search_libraries(
 
     if per_library_cap is None:
         per_library_cap = max(max_results, 50)
+    per_library_cap = max(1, per_library_cap)
+
+    # One group per term the prefilter can actually test. A term carrying a
+    # tempo target gets none, so a shortfall here means some term was never
+    # asked about and the filter's verdict is weaker than the matcher's.
+    probe_groups = prefilter_probes(spec)
+    untested_terms = len(probe_groups) < len(spec.terms)
 
     library_matches: dict[str, list[str]] = {}
     partial_pool: list[tuple[frozenset[int], float, str, str]] = []
     found_full = False
+    deadline = time.monotonic() + SEARCH_DEADLINE_SECONDS
+    deadline_reached = False
 
     for library_name, library in _libraries.items():
+        if deadline_reached:
+            break
         if not library.exists():
             continue
 
-        scored: list[tuple[float, str]] = []
+        # Bounded top-K by rank_key. The walk NEVER stops early for it: the
+        # heap holds the best `per_library_cap` seen so far and a later,
+        # better file evicts the worst one. That is the whole defect -- the
+        # old code kept the first N and threw the rest away unread, so on any
+        # library bigger than the cap the "ranking" only ever ordered an
+        # arbitrary traversal-order prefix.
+        best: list[_WorstFirst] = []
         folder_cache: dict = {}
-        for extension in ALL_EXTENSIONS:
-            try:
-                for file_path in library.rglob(extension):
-                    if is_junk_path(file_path):
-                        continue
-                    bag = file_tokens(
-                        file_path, root=library, folder_cache=folder_cache
-                    )
-                    result = match_query(spec, bag)
-                    if result.matched:
-                        found_full = True
-                        scored.append((result.score, str(file_path)))
-                        if len(scored) >= per_library_cap:
-                            break
-                    elif (
-                        allow_partial
-                        and not found_full
-                        and result.matched_terms
-                        and len(partial_pool) < _PARTIAL_POOL_CAP
-                    ):
-                        partial_pool.append(
-                            (
-                                result.matched_terms,
-                                result.score,
-                                str(file_path),
-                                library_name,
-                            )
-                        )
-            except (PermissionError, OSError):
+        for file_path, relative in walk_samples(library):
+            stripped = strip_separators(relative)
+            hits = prefilter_hits(probe_groups, stripped)
+            could_match_all = hits == len(probe_groups)
+            # The partial fallback needs a LOWER bar than a full match: it
+            # collects files that satisfied SOME terms. Applying the
+            # all-groups test to it would quietly shrink the near-miss pool
+            # and change what Stage 8 reports. A term the prefilter could not
+            # test might be satisfied on its own, so once one exists every
+            # file stays a possible near-miss.
+            could_match_some = untested_terms or hits > 0
+            if not could_match_all and not (
+                allow_partial and not found_full and could_match_some
+            ):
                 continue
-            if len(scored) >= per_library_cap:
+            if is_junk_path(file_path):
+                continue
+
+            bag = file_tokens(file_path, root=library, folder_cache=folder_cache)
+            result = match_query(spec, bag)
+            if result.matched:
+                found_full = True
+                key = rank_key(result.score, str(file_path))
+                if len(best) < per_library_cap:
+                    heapq.heappush(best, _WorstFirst(key))
+                elif key < best[0].key:
+                    heapq.heapreplace(best, _WorstFirst(key))
+            elif (
+                allow_partial
+                and not found_full
+                and result.matched_terms
+                and len(partial_pool) < _PARTIAL_POOL_CAP
+            ):
+                partial_pool.append(
+                    (
+                        result.matched_terms,
+                        result.score,
+                        str(file_path),
+                        library_name,
+                    )
+                )
+
+            # Checked after the file, not before it, so a deadline that has
+            # already passed still yields the ranked results gathered so far
+            # rather than nothing at all.
+            if time.monotonic() >= deadline:
+                deadline_reached = True
                 break
 
-        if scored:
-            library_matches[library_name] = _rank_paths(scored)
+        if best:
+            # rank_key is (-score, len(path), path), so the score and path
+            # come straight back out of it -- _rank_paths keeps its signature
+            # because the partial path below shares it.
+            library_matches[library_name] = _rank_paths(
+                [(-entry.key[0], entry.key[2]) for entry in best]
+            )
 
     if library_matches:
         return SearchOutcome(
-            matches=_balance_across_libraries(library_matches, max_results)
+            matches=_balance_across_libraries(library_matches, max_results),
+            deadline_reached=deadline_reached,
         )
 
     if not partial_pool:
-        return SearchOutcome(matches=[])
+        return SearchOutcome(matches=[], deadline_reached=deadline_reached)
 
     # Stage 8: group the near-misses by exactly which terms they satisfied,
     # and show the biggest, best subset -- "matched 174 + break but not dark".
@@ -464,6 +610,7 @@ def search_libraries(
             term.text for i, term in enumerate(spec.terms) if i not in best_terms
         ),
         partial_total=len(best_files),
+        deadline_reached=deadline_reached,
     )
 
 

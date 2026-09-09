@@ -19,9 +19,19 @@ from ._shared import (
     audio_warming_message,
     get_libraries,
     require_pro,
-    search_all_libraries,
     search_libraries,
     set_last_search_results,
+)
+
+# Said whenever the walk hit its wall-clock ceiling before reading everything.
+# A search that stopped early and reads like a complete one is the same
+# silent-degradation failure the ranking rewrite exists to remove, so every
+# search tool that can hit the deadline has to say when it did.
+TRUNCATION_NOTE = (
+    "Note: the search hit its time limit before reading every library, so "
+    "these are the best matches from the part that was searched. Try a more "
+    "specific keyword, or check whether a drive is cold or on a slow network "
+    "mount."
 )
 
 # Below this length, tempo detection is unreliable (one-shots have no
@@ -47,10 +57,18 @@ DETECTION_BUDGET_FILES = 40
 DETECTION_DEADLINE_SECONDS = 25.0
 
 # How many combined labelled + unlabelled matches the walk gathers when a
-# tempo range is in play. Most word-matching files carry no tempo label at
-# all, so the per-library cap must not fill with them before enough LABELLED
-# (certain) hits are counted. Deliberately far above max_results, which still
+# tempo range is in play. Deliberately far above max_results, which still
 # bounds what's DISPLAYED and DECODED, not what's considered.
+#
+# This number used to be load-bearing for a reason that no longer applies.
+# The pool was "the first 300 files the walk reached", and most word-matching
+# files carry no tempo label, so it could fill with unlabelled candidates
+# before enough LABELLED (certain) hits were counted -- 300 was headroom
+# against that. Now the pool is the best-ranked 300, and a labelled in-range
+# hit outscores an unlabelled candidate by construction
+# (SCORE_BPM + BONUS_BPM_HINT against SCORE_UNLABELLED_CANDIDATE = 0.1), so
+# the labelled files are exactly what the pool retains. 300 is kept as
+# generous headroom rather than a threshold anything now depends on.
 CANDIDATE_POOL_SIZE = 300
 
 
@@ -377,6 +395,8 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
 
     if not matches:
         set_last_search_results([])
+        if outcome.deadline_reached:
+            return f"No samples found matching '{keyword}' yet.\n{TRUNCATION_NOTE}"
         return (
             f"No samples found matching '{keyword}' across all libraries.\n"
             f"Hint: Check that libraries are mounted with list_libraries. "
@@ -409,6 +429,9 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
         result += f"   Folder: {folder}\n"
         result += f"   Path: {path}\n\n"
 
+    if outcome.deadline_reached:
+        result += f"{TRUNCATION_NOTE}\n\n"
+
     result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
 
     return result
@@ -416,10 +439,13 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
 
 async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
     """No tempo range in play -- unchanged since before Phase 2 #3 existed."""
-    matches = search_all_libraries(keyword, max_results)
+    outcome = search_libraries(keyword, max_results)
+    matches = outcome.matches
 
     if not matches:
         set_last_search_results([])
+        if outcome.deadline_reached:
+            return f"No samples found matching '{keyword}' yet.\n{TRUNCATION_NOTE}"
         return f"No samples found matching '{keyword}' across all libraries"
 
     set_last_search_results(matches)
@@ -448,6 +474,9 @@ async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
             result += f"   Folder: {folder}\n"
             result += f"   Path: {path}\n\n"
 
+    if outcome.deadline_reached:
+        result += f"{TRUNCATION_NOTE}\n\n"
+
     result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
 
     return result
@@ -466,11 +495,17 @@ async def _search_by_bpm_ranged(
     if an octave-aware reading lands in range (Phase 2 #3b -- the real Pro
     differentiator, since free search can only ever find a labelled range).
     """
-    pool = search_all_libraries(
+    outcome = search_libraries(
         keyword, CANDIDATE_POOL_SIZE, bpm_filter=target, allow_unlabelled=True
     )
+    pool = outcome.matches
     if not pool:
         set_last_search_results([])
+        if outcome.deadline_reached:
+            return (
+                f"No samples found matching '{keyword}'{range_note} yet.\n"
+                f"{TRUNCATION_NOTE}"
+            )
         return f"No samples found matching '{keyword}'{range_note} across all libraries"
 
     labelled_pool: list[tuple[str, str, float]] = []
@@ -540,6 +575,9 @@ async def _search_by_bpm_ranged(
             f"Checked {considered_count} of {total_candidates} unlabelled "
             f"candidates{' (detection budget reached)' if truncated else ''}.\n\n"
         )
+
+    if outcome.deadline_reached:
+        result += f"{TRUNCATION_NOTE}\n\n"
 
     result += "Use collect_search_results with the result numbers above to copy/move files to a folder."
 
