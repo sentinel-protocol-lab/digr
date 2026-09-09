@@ -11,9 +11,12 @@ from digr.tools._query import (
     file_tokens,
     match_query,
     parse_query,
+    prefilter_hits,
+    prefilter_probes,
     range_term,
     rank_key,
     stem,
+    strip_separators,
     tokenize,
     weak_expansions,
     with_bpm_filter,
@@ -554,3 +557,53 @@ class TestRanking:
         rows = [(1.0, "bbb"), (5.0, "zzzzzz"), (5.0, "aaa"), (5.0, "aab")]
         ordered = [path for _, path in sorted(rows, key=lambda r: rank_key(*r))]
         assert ordered == ["aaa", "aab", "zzzzzz", "bbb"]
+
+
+class TestPrefilter:
+    """The cheap necessary condition that lets search rank a whole library.
+
+    Its only real requirement is one-sided: it may say "maybe" to a file that
+    does not match, but never "no" to one that does. The end-to-end proof of
+    that lives in test_search.py; these pin the pieces the proof rests on.
+    """
+
+    def test_strip_separators_exposes_a_compound_join(self):
+        # b + d join to "bd", which the alias map maps to "kick" -- but the
+        # raw name has a hyphen between the letters and never contains it.
+        stripped = strip_separators("Bassline_1_C#m-A-B-D.mid")
+        assert "bd" in stripped
+        assert "bd" not in "Bassline_1_C#m-A-B-D.mid".lower()
+
+    def test_every_probe_group_is_satisfied_by_a_matching_path(self):
+        spec = parse_query("dark break")
+        groups = prefilter_probes(spec)
+        assert len(groups) == 2
+        assert prefilter_hits(groups, strip_separators("dark_break_01.wav")) == 2
+        assert prefilter_hits(groups, strip_separators("bright_break_01.wav")) == 1
+        assert prefilter_hits(groups, strip_separators("pad_soft.wav")) == 0
+
+    def test_alias_expansions_are_probed_not_just_the_typed_word(self):
+        # Probing the bare word would lose every file labelled with the
+        # abbreviation -- the alias map exists precisely because packs write
+        # "BD" where the user types "kick".
+        groups = prefilter_probes(parse_query("kick"))
+        assert prefilter_hits(groups, strip_separators("E808_Loop_BD_01.wav")) == 1
+
+    def test_ies_stemming_still_probes_inside_the_original_token(self):
+        # "melody" is the stem of "melodies" and is NOT a substring of it --
+        # the one stem rule that does not simply trim a suffix.
+        groups = prefilter_probes(parse_query("melody"))
+        assert prefilter_hits(groups, strip_separators("melodies_bright.wav")) == 1
+
+    def test_a_tempo_term_gets_no_group_at_all(self):
+        # A tempo term is satisfied by a number landing in range, or by the
+        # ABSENCE of any tempo marker. Neither is a question a substring test
+        # can ask, so the term is left untested rather than guessed at.
+        spec = parse_query("break 174")
+        assert len(spec.terms) == 2
+        assert len(prefilter_probes(spec)) == 1
+
+    def test_a_pure_range_query_is_filtered_by_nothing(self):
+        spec = with_bpm_filter(parse_query(""), BpmTarget(170.0, 178.0))
+        assert prefilter_probes(spec) == ()
+        assert prefilter_hits(prefilter_probes(spec), "anything") == 0

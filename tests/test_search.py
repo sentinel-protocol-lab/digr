@@ -719,3 +719,264 @@ async def test_mislabelled_file_is_never_reported_as_confirmed(tmp_path, pro_lic
         f"detection:\n{result}"
     )
     assert "could not confirm" in result
+
+
+# ---------------------------------------------------------------------------
+# Ranking the whole library, not the first cap-worth of it
+# ---------------------------------------------------------------------------
+#
+# The gap that let the truncation defect ship: every search test above uses a
+# fixture SMALLER than the per-library cap, so the cap never fires and ranking
+# always looks perfect. Everything below deliberately overflows it.
+
+
+@pytest.fixture
+def oversized_library(tmp_path_factory):
+    """More matching files than the cap, with the best ones NOT first.
+
+    Fifty decoys carry "kick" only in the FOLDER name; five winners carry it
+    in the FILENAME, which scores higher and also earns the
+    all-terms-in-filename bonus.
+
+    All fifty-five sit in ONE directory ON PURPOSE. Split across two folders
+    the test is at the mercy of which folder the filesystem hands over first
+    -- and it passed against the unfixed code for exactly that reason, since
+    the winners' folder happened to come first and filled the cap with them.
+    In a single directory, the old "keep the first five" rule can only return
+    the five winners if the filesystem volunteers all five ahead of fifty
+    others, which is not a coincidence worth planning around.
+    """
+    from digr.tools._shared import set_libraries
+
+    lib = tmp_path_factory.mktemp("oversized_library")
+    pack = lib / "Kick Pack"
+    pack.mkdir()
+
+    for i in range(50):
+        (pack / f"pack_{i:02d}.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+
+    expected = set()
+    for i in range(5):
+        path = pack / f"kick_{i:02d}.wav"
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+        expected.add(str(path))
+
+    set_libraries({"Oversized Library": lib})
+    return expected
+
+
+def test_cap_keeps_the_best_matches_not_the_first_ones(oversized_library):
+    """The regression test for the whole defect.
+
+    Fails before the rewrite: the walk stopped as soon as the cap was full, so
+    the answer was five arbitrary files in traversal order and the five best
+    were never even read.
+    """
+    from digr.tools._shared import search_libraries
+
+    outcome = search_libraries("kick", max_results=100, per_library_cap=5)
+
+    assert {path for path, _ in outcome.matches} == oversized_library
+
+
+def test_midi_is_reachable_when_audio_alone_exceeds_the_cap(tmp_path):
+    """Symptom B: MIDI starvation, fixed structurally rather than by tuning.
+
+    The old walk globbed six audio extensions before ``*.mid``, so on a
+    library where the audio matches alone fill the cap the walk broke out
+    before MIDI was ever globbed -- which is why "midi" returned ZERO MIDI
+    files on a real library that is half MIDI. One traversal leaves no
+    extension with that privilege.
+    """
+    from digr.tools._shared import search_libraries, set_libraries
+
+    loops = tmp_path / "Loops"
+    loops.mkdir()
+    for i in range(60):
+        (loops / f"loop_number_{i:04d}.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    midi = loops / "loop.mid"
+    midi.write_bytes(b"MThd" + b"\x00" * 40)
+    set_libraries({"Loops": tmp_path})
+
+    outcome = search_libraries("loop", max_results=100, per_library_cap=10)
+    paths = [path for path, _ in outcome.matches]
+
+    assert len(paths) == 10
+    assert str(midi) in paths
+
+
+def test_extensions_match_case_insensitively(tmp_path):
+    """``rglob("*.wav")`` was case-SENSITIVE, so an upper-cased extension was
+
+    invisible to search -- 83 files on one real 351k-file library. Widening is
+    the safe direction: it can only add files Digr already knows how to read.
+    """
+    from digr.tools._shared import search_libraries, set_libraries
+
+    loops = tmp_path / "Loops"
+    loops.mkdir()
+    shouty = loops / "KICK_HARD.WAV"
+    shouty.write_bytes(b"RIFF" + b"\x00" * 40)
+    set_libraries({"Loops": tmp_path})
+
+    outcome = search_libraries("kick", max_results=10)
+
+    assert [path for path, _ in outcome.matches] == [str(shouty)]
+
+
+def test_one_unreadable_folder_does_not_cost_the_whole_library(tmp_path):
+    """The old ``except (PermissionError, OSError): continue`` wrapped a
+    per-extension loop. With one traversal an escaping error would abandon the
+    entire library, so an unreadable subtree has to stay local to itself.
+    """
+    import os
+    import stat
+
+    from digr.tools._shared import search_libraries, set_libraries
+
+    readable = tmp_path / "Open"
+    readable.mkdir()
+    kept = readable / "kick_open.wav"
+    kept.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    locked = tmp_path / "Locked"
+    locked.mkdir()
+    (locked / "kick_locked.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    os.chmod(locked, 0o000)
+    set_libraries({"Loops": tmp_path})
+
+    try:
+        outcome = search_libraries("kick", max_results=10)
+    finally:
+        os.chmod(locked, stat.S_IRWXU)
+
+    assert str(kept) in [path for path, _ in outcome.matches]
+
+
+@pytest.mark.asyncio
+async def test_deadline_returns_ranked_results_and_says_it_was_cut_short(
+    tmp_path, monkeypatch
+):
+    """Degrading honestly beats degrading silently.
+
+    The deadline is checked AFTER each file rather than before it, so a
+    ceiling that has already passed still yields what was gathered instead of
+    an empty answer that reads like "nothing matched".
+    """
+    from digr.tools import _shared
+    from digr.tools._shared import set_libraries
+    from digr.tools.search import TRUNCATION_NOTE
+
+    loops = tmp_path / "Loops"
+    loops.mkdir()
+    for i in range(20):
+        (loops / f"loop_{i:02d}.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    set_libraries({"Loops": tmp_path})
+
+    monkeypatch.setattr(_shared, "SEARCH_DEADLINE_SECONDS", 0.0)
+    result = await search_samples("loop")
+
+    assert "loop_" in result
+    assert TRUNCATION_NOTE in result
+
+
+# ---------------------------------------------------------------------------
+# Prefilter equivalence -- the load-bearing one
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def prefilter_library(tmp_path_factory):
+    """Named to exercise every way the prefilter could wrongly say "no"."""
+    from digr.tools._shared import set_libraries
+
+    lib = tmp_path_factory.mktemp("prefilter_library")
+    files = [
+        # The compound join: "B-D" tokenises to b + d, which join to "bd",
+        # which the alias map maps to "kick". A prefilter tested on the RAW
+        # path never sees "bd" -- a hyphen sits between the letters.
+        "Niko Kotoulas/Niko_Kotoulas_MelodicTrap_Bassline_1_C#m-A-B-D.mid",
+        "Niko Kotoulas/Chords_G#m-E-B-D#m7.mid",
+        # Kicks reached without any join, one of them via the BD abbreviation.
+        "Drums/Kicks/kick_808.wav",
+        "MusicRadar/E808_Loop_BD_01.wav",
+        # -ies stemming in the direction that breaks a naive probe: the query
+        # "melody" stems to "melody", which is NOT inside "melodies".
+        "Melodic/melodies_bright.wav",
+        "Melodic/melody_lead.wav",
+        # Plurals, multi-term queries, and the pack folder "loop" must miss.
+        "Loopmasters/Drum Hits/TSP_NOISIA_174_dnb_break.wav",
+        "Breaks/Old Skool/amen_break.wav",
+        "Breaks/dark_break_01.wav",
+        "Loops/dusty_loop.wav",
+        "Snares/snare_909_tight.wav",
+        "Snares/909_snr.wav",
+        "Drums/HiHats/hi-hat_closed_01.wav",
+        # Noise that must be filtered out and stay out.
+        "Pads/Seabed_pad.wav",
+        "FX/Abduction_FX.wav",
+        "Vocals/vox_wet_01.aiff",
+    ]
+    for relative in files:
+        path = lib / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"Prefilter Library": lib})
+    return lib
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "kick",  # reachable only via a separator-spanning compound join
+        "loop",
+        "breaks",
+        "snare 909",
+        "dark break",
+        "melody",  # -ies stemming, the direction a naive probe loses
+        "melodies",
+        "hi-hat",
+        "808",
+        "break 174",  # a tempo term the prefilter cannot test at all
+    ],
+)
+def test_prefilter_never_drops_a_file_the_matcher_would_have_kept(
+    query, prefilter_library, monkeypatch
+):
+    """The prefilter must be a NECESSARY condition, never an equivalent one.
+
+    Identical SETS, not merely equal counts -- the 11% loss the naive
+    raw-path version caused on a real library was a swap, not a shortfall.
+    Re-run this whenever the tokeniser changes; the equivalence is a property
+    of ``stem``/``compound_join``, not of the prefilter alone.
+    """
+    from digr.tools import _shared
+    from digr.tools._shared import search_libraries
+
+    filtered = search_libraries(query, 500, per_library_cap=500)
+
+    # Admit every file, so match_query alone decides.
+    monkeypatch.setattr(
+        _shared, "prefilter_hits", lambda groups, stripped: len(groups)
+    )
+    unfiltered = search_libraries(query, 500, per_library_cap=500)
+
+    assert {p for p, _ in filtered.matches} == {p for p, _ in unfiltered.matches}
+    assert filtered.partial == unfiltered.partial
+    assert filtered.matched_terms == unfiltered.matched_terms
+    assert filtered.missing_terms == unfiltered.missing_terms
+
+
+def test_the_naive_raw_path_prefilter_is_the_thing_being_avoided():
+    """Pins WHY the strip exists, so nobody optimises it away.
+
+    The joined token the alias map needs is absent from the raw filename and
+    present once the separators go.
+    """
+    from digr.tools._query import strip_separators
+
+    name = "Niko_Kotoulas_MelodicTrap_Bassline_1_C#m-A-B-D.mid"
+
+    assert "bd" not in name.lower()
+    assert "bd" in strip_separators(name)

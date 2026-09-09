@@ -734,3 +734,92 @@ def match_query(spec: QuerySpec, bag: TokenBag) -> MatchResult:
 def rank_key(score: float, path: str) -> tuple[float, int, str]:
     """Deterministic ordering: best score first, then shorter path, then A-Z."""
     return (-score, len(path), path)
+
+
+# ---------------------------------------------------------------------------
+# The prefilter -- a NECESSARY condition for match_query, asked of a string
+# ---------------------------------------------------------------------------
+#
+# Search has to consider every file in every library, and tokenise-and-match
+# is the dominant cost of doing so -- measured on a real 351,719-file library
+# at ~7.1s against 2.45s for the traversal itself. Ranking every file, rather
+# than the first N the walk happens to reach, is only affordable if most files
+# never reach the tokeniser at all.
+#
+# So before building a TokenBag, ask a much cheaper question of the path
+# string -- one that can never say "no" to a file match_query would have said
+# "yes" to. Every tier in _score_term ultimately needs some expansion of the
+# term to appear inside a file token, and every file token is a contiguous run
+# of alphanumerics in the path. Strip the separators out of the path and every
+# token becomes a plain substring of one string.
+#
+# 🔴 Testing the RAW path instead is wrong, and loses results SILENTLY. A file
+# named "..._C#m-A-B-D.mid" tokenises to "b" and "d", which compound_join
+# fuses into "bd", which the alias map maps to "kick" -- but the raw path has
+# a hyphen between the letters and never contains "bd", so a raw-path
+# prefilter drops the file. Measured: 1,007 of 9,137 "kick" results, 11%, lost
+# exactly that way. Stripping the separators first is what makes a joined
+# token visible again.
+
+
+def strip_separators(text: str) -> str:
+    """Lowercase ``text`` and delete everything ``tokenize`` treats as a break.
+
+    The result is the one string that every token of ``text`` is a substring
+    of -- compound joins included, because the separator between the two
+    halves is gone.
+    """
+    return _SEPARATORS.sub("", text).lower()
+
+
+def _probe(expansion: str) -> str:
+    """Shorten an expansion to a form guaranteed to sit inside any token that
+    could stem to it.
+
+    ``stem`` only ever trims a suffix -- except for "-ies" -> "-y", where
+    "bodies" stems to "body" and that final "y" is a letter the original token
+    never contained. Dropping the "y" ("bod") restores the guarantee for the
+    one rule that breaks it, at the cost of a slightly weaker test. Every
+    other stem is already a prefix of the token it came from.
+    """
+    return expansion[:-1] if expansion.endswith("y") else expansion
+
+
+def prefilter_probes(spec: QuerySpec) -> tuple[tuple[str, ...], ...]:
+    """Substring alternatives per term: one group per term that can be tested.
+
+    A file can only be a full match if SOME probe of EVERY group appears in
+    its separator-stripped path. Groups are the weaker, string-only shadow of
+    ``_score_term``'s tiers -- exact token, alias, weak alias and the
+    substring fallback all reduce to "this text appears inside a token".
+
+    Terms carrying a tempo target get NO group at all rather than an
+    untestable one. They are satisfied by a number landing in range or -- for
+    a detection-discovery term -- by the ABSENCE of any tempo marker, and
+    neither is a question about vocabulary. Omitting them makes the filter
+    weaker, never wrong; the caller can compare the group count against
+    ``len(spec.terms)`` to see that some terms went untested.
+    """
+    groups: list[tuple[str, ...]] = []
+    for term in spec.terms:
+        if term.bpm is not None:
+            continue
+        probes = {term.text}
+        probes.update(_probe(alias) for alias in term.aliases)
+        probes.update(_probe(alias) for alias in term.weak_aliases)
+        probes.discard("")
+        if probes:
+            groups.append(tuple(sorted(probes)))
+    return tuple(groups)
+
+
+def prefilter_hits(groups: tuple[tuple[str, ...], ...], stripped_path: str) -> int:
+    """How many of ``groups`` are satisfied by ``stripped_path``.
+
+    The count, not a yes/no, because the two callers need different verdicts:
+    a full match needs every group, while the Stage 8 partial fallback is
+    still interested in a file that hit only some of them.
+    """
+    return sum(
+        1 for group in groups if any(probe in stripped_path for probe in group)
+    )
