@@ -403,8 +403,11 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
             f"Try simpler keywords (e.g., 'kick' instead of 'dark punchy kick')."
         )
 
-    # Cache results for collect_search_results
-    set_last_search_results(matches)
+    # Cache results for collect_search_results. Near-misses are numbered in the
+    # same sequence as the full matches, so they belong in the same cache, in
+    # DISPLAYED order -- a cache that disagrees with the numbering on screen
+    # makes collect_search_results copy the wrong file.
+    set_last_search_results(matches + outcome.near_misses)
 
     if outcome.partial:
         # Nothing satisfied every word. Say which words DID land and show
@@ -421,13 +424,30 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
     else:
         result = f"Found samples matching '{keyword}' (showing {len(matches)}):\n\n"
 
-    for i, (path, library_name) in enumerate(matches, 1):
-        filename = Path(path).name
-        folder = Path(path).parent.name
-        result += f"{i}. {filename}\n"
-        result += f"   Library: {library_name}\n"
-        result += f"   Folder: {folder}\n"
-        result += f"   Path: {path}\n\n"
+    def _rows(entries, start):
+        block = ""
+        for i, (path, library_name) in enumerate(entries, start):
+            block += f"{i}. {Path(path).name}\n"
+            block += f"   Library: {library_name}\n"
+            block += f"   Folder: {Path(path).parent.name}\n"
+            block += f"   Path: {path}\n\n"
+        return block
+
+    result += _rows(matches, 1)
+
+    if outcome.near_misses:
+        # Exact hits led; these dropped a word and have to SAY which one. An
+        # incomplete answer that reads like a complete one is the failure this
+        # whole path exists to remove.
+        matched = " + ".join(f"'{t}'" for t in outcome.matched_terms)
+        missing = " or ".join(f"'{t}'" for t in outcome.missing_terms)
+        count = outcome.partial_total
+        noun = "file" if count == 1 else "files"
+        result += (
+            f"Near misses — {count} {noun} matched {matched} but not {missing} "
+            f"(showing {len(outcome.near_misses)}):\n\n"
+        )
+        result += _rows(outcome.near_misses, len(matches) + 1)
 
     if outcome.deadline_reached:
         result += f"{TRUNCATION_NOTE}\n\n"
