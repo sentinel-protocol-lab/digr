@@ -28,17 +28,30 @@ import numpy as np
 SR = 22050
 
 # Patterns are 16th-note step positions within one 4/4 bar (16 steps).
-# Three shapes, chosen because they stress the detector differently: a dense
+# Seven shapes, chosen because they stress the detector differently: a dense
 # grid where every subdivision is filled, a backbeat where the strong onsets
 # are sparse, and a halftime feel whose snare genuinely suggests half the
 # tempo -- the ambiguity that is real in the music rather than in the maths.
+# The last two ("shuffle", "dotted") are ternary: their onset period is a
+# 3-sixteenth (dotted-8th), not a power-of-two subdivision, which is what
+# actually generates the 2/3 and 4/3 error classes -- see TERNARY_PATTERNS.
 PATTERNS = {
     "fourfloor": {"k": [0, 4, 8, 12], "s": [4, 12], "h": [2, 6, 10, 14]},
     "backbeat": {"k": [0, 6, 10], "s": [4, 12], "h": [0, 2, 4, 6, 8, 10, 12, 14]},
     "breaks": {"k": [0, 10], "s": [4, 7, 12, 14], "h": [2, 6, 8, 14]},
     "halftime": {"k": [0, 11], "s": [8], "h": [0, 4, 8, 12]},
     "sparse": {"k": [0, 8], "s": [4, 12], "h": []},
+    "shuffle": {"k": [0, 3, 6, 11], "s": [8], "h": [0, 2, 4, 6, 8, 10, 12, 14]},
+    "dotted": {"k": [0, 4, 8, 12], "s": [4, 12], "h": [0, 3, 6, 9, 12]},
 }
+
+# Applied to every tempo regardless of band (see build_corpus), unlike the
+# five above which patterns_for() routes by BPM. Band-routing was measured
+# and rejected: dotted's 4/3 errors all occur below 128 BPM, so routing it
+# only to the fast band scores 4/3 == 0, zeroing out the exact class this
+# corpus exists to add. dotted's hat run is FIVE steps, not a closed six-step
+# cycle -- six is always wrong (0/21), which is regression-blind, not harder.
+TERNARY_PATTERNS = ["shuffle", "dotted"]
 
 # (bpm, genre) across the span a general-purpose library actually contains.
 TEMPOS = [
@@ -141,14 +154,31 @@ def patterns_for(bpm: float) -> list[str]:
     return ["breaks", "fourfloor", "halftime"]
 
 
-def build_corpus(bars: int = 4) -> list[tuple[int, str, str, np.ndarray]]:
-    """The full corpus as (bpm, genre, pattern, audio) -- 3 patterns per tempo."""
+def build_corpus(
+    bars: int = 4, subset: str = "both"
+) -> list[tuple[int, str, str, np.ndarray]]:
+    """The corpus as (bpm, genre, pattern, audio).
+
+    ``subset`` selects "binary" (the original 3-pattern-per-tempo, band-routed
+    63), "ternary" (the 2 non-power-of-two patterns applied to all 21 tempos,
+    42), or "both" (105). Binary seeds are ``i*10+j`` for ``j in {0,1,2}``;
+    ternary seeds are ``i*10+3`` and ``i*10+4`` -- disjoint, so adding the
+    ternary patterns never changes a single byte of the existing 63 loops.
+    """
+    if subset not in ("binary", "ternary", "both"):
+        raise ValueError(f"subset must be 'binary', 'ternary' or 'both', got {subset!r}")
     corpus = []
     for i, (bpm, genre) in enumerate(TEMPOS):
-        for j, pattern in enumerate(patterns_for(bpm)):
-            corpus.append(
-                (bpm, genre, pattern, make_loop(bpm, pattern, bars=bars, seed=i * 10 + j))
-            )
+        if subset in ("binary", "both"):
+            for j, pattern in enumerate(patterns_for(bpm)):
+                corpus.append(
+                    (bpm, genre, pattern, make_loop(bpm, pattern, bars=bars, seed=i * 10 + j))
+                )
+        if subset in ("ternary", "both"):
+            for k, pattern in enumerate(TERNARY_PATTERNS):
+                corpus.append(
+                    (bpm, genre, pattern, make_loop(bpm, pattern, bars=bars, seed=i * 10 + 3 + k))
+                )
     return corpus
 
 
@@ -172,21 +202,26 @@ def classify(true_bpm: float, detected: float) -> str:
         ("double", 2.0, 0.08),
         ("half", 0.5, 0.02),
         ("3/2", 1.5, 0.06),
+        ("4/3", 4.0 / 3.0, 0.053),
         ("2/3", 2.0 / 3.0, 0.03),
+        ("3/4", 3.0 / 4.0, 0.030),
     ):
         if abs(ratio - target) < tol:
             return name
     return "other"
 
 
-def score(detect, bars: int = 4) -> dict:
+def score(detect, bars: int = 4, subset: str = "both") -> dict:
     """Run ``detect(audio, sr)`` over the corpus and summarise.
 
-    Returns overall/per-band exact-match rates plus the error breakdown, and
-    the raw rows so a caller can print or diff individual files.
+    ``subset`` is passed straight to ``build_corpus`` -- "binary" or "ternary"
+    to score one half alone, "both" (the default) for the honest combined
+    figure. Returns overall/per-band exact-match rates plus the error
+    breakdown, and the raw rows so a caller can print or diff individual
+    files.
     """
     rows = []
-    for bpm, genre, pattern, audio in build_corpus(bars=bars):
+    for bpm, genre, pattern, audio in build_corpus(bars=bars, subset=subset):
         detected = float(detect(audio, SR))
         rows.append((bpm, genre, pattern, detected, classify(bpm, detected)))
 
