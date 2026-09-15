@@ -2,6 +2,7 @@
 
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from digr.tools._audio_analysis import (
@@ -9,12 +10,14 @@ from digr.tools._audio_analysis import (
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
+    _tempo_from_onset_env,
     compute_chroma,
     detect_tempo,
     detect_tempo_with_hint,
     get_duration,
     load_audio,
 )
+from tempo_corpus import make_loop
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +328,60 @@ class TestSingleOnsetPass:
         y = np.zeros(22050 * 3, dtype=np.float32)
         assert detect_tempo(y, sr=22050) == 0.0
         assert detect_tempo_with_hint(y, sr=22050, filename="x.wav").tempo == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Common-tempo snap: candidates an octave apart must compare in RELATIVE
+# terms (5a) -- see the comment above `common_tempos` in _audio_analysis.py.
+# ---------------------------------------------------------------------------
+
+class TestCommonTempoDistance:
+    def test_relative_distance_prefers_the_true_tempo_over_its_half(self):
+        """No audio decode involved -- a hand-built onset envelope with a
+        strong pulse every 15 frames, which is 172.3 BPM at this function's
+        fixed hop_length/sr and whose autocorrelation also carries a real
+        peak at double that period (86.1 BPM, the half-time ambiguity).
+        Absolute distance ranks 86.1 first (1.1 BPM from 85 beats 1.7 BPM
+        from 174); relative distance reverses it (0.98% beats 1.29%) -- the
+        exact 0.6 BPM inversion the fix corrects."""
+        n = 600
+        onset_env = np.zeros(n, dtype=np.float64)
+        positions = np.arange(0, n, 15)
+        onset_env[positions] = 1.0
+        # Small jitter so the envelope isn't perfectly uniform -- like a real
+        # onset envelope never is -- without changing which lags carry the
+        # strong periodicity.
+        onset_env[positions] += np.random.default_rng(0).uniform(0, 0.05, len(positions))
+
+        tempo = _tempo_from_onset_env(onset_env, sr=22050)
+        assert tempo == pytest.approx(172.3), (
+            f"expected the true tempo (172.3), got {tempo} -- the half-time "
+            "candidate (86.1) won, which is the absolute-distance bug"
+        )
+
+    def test_real_172_loop_detects_direct_not_at_half(self):
+        """The bug a customer actually meets, not just an arithmetic
+        inversion: a real (not click-track) 4-bar 172 loop with kick, snare
+        and hats -- the same corpus material the benchmark measures against.
+        Fails against the old absolute metric, which returns 86.1 (an exact
+        half-time error) for this file."""
+        y = make_loop(172.0, "breaks", bars=4, seed=0)
+        tempo = detect_tempo(y, sr=22050)
+        assert 170.0 <= tempo <= 178.0, (
+            f"expected ~172, got {tempo} -- likely the half-time collapse"
+        )
+
+    def test_common_tempo_is_not_pulled_to_its_half(self):
+        """Guards the accepted slow-band trade: the residual is carried
+        deliberately (three designed repairs to recover it all measured
+        net-negative) rather than fixed by widening `common_tempos` with slow
+        anchors. A 140 BPM loop -- 140 already sits exactly on a common
+        tempo -- must keep detecting at 140, not at its half (70). Breaks if
+        70 is ever added to `common_tempos`: 70 becomes the nearest anchor to
+        the half-time candidate, and a currently one-sided choice (140 is an
+        exact match, 70's nearest anchor was a distant 85) becomes a contest
+        decided the wrong way -- the exact 2.4-point real regression that
+        edit was measured to cost."""
+        y = make_loop(140.0, "fourfloor", bars=4, seed=0)
+        tempo = detect_tempo(y, sr=22050)
+        assert tempo == pytest.approx(139.7, abs=1.0), f"expected ~140, got {tempo}"

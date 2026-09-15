@@ -29,11 +29,13 @@ For the full per-band table on a passing run, use the standalone runner:
 ``python benchmarks/run_tempo_benchmark.py --verbose``.
 """
 
+import hashlib
+
 import pytest
 
 from digr.tools._audio_analysis import detect_tempo
 
-from tempo_corpus import classify, score
+from tempo_corpus import build_corpus, classify, score
 
 # Below the measured result by enough to absorb cross-platform numeric drift,
 # above the known-bad variants by enough to still catch them. Scoped to the
@@ -60,6 +62,14 @@ TERNARY_MIN_RATIO_ERRORS = 10
 # itself moved, which invalidates comparison against every recorded figure.
 EXPECTED_CORPUS_SIZE = 105
 EXPECTED_BINARY_SIZE = 63
+
+# Pins the binary subset's own audio bytes, not a detector's score on them, so
+# this stays true regardless of how well any given detector reads the corpus --
+# a detector improvement must never look like the corpus itself changing.
+# Recompute with `hashlib.sha256(b"".join(a.tobytes() for *_, a in
+# build_corpus(subset="binary"))).hexdigest()` if a PATTERNS or TEMPOS edit
+# intentionally moves these loops.
+BINARY_CORPUS_SHA256 = "a51c777b1d49ae0a24c5371fd110b7bc26a8932b70e36c175582be0adbc86feb"
 
 
 def _table(result) -> str:
@@ -113,14 +123,20 @@ def test_corpus_is_the_expected_size(combined_result, binary_result):
     )
 
 
-def test_binary_subset_is_unchanged_by_the_ternary_addition(binary_result):
+def test_binary_subset_is_unchanged_by_the_ternary_addition():
     """The ADD decision (over SUBSTITUTE) rests on the 63 committed loops
     being bit-identical to what they were before the ternary patterns existed.
-    This is the number that proves it: if any existing loop's audio moved,
-    this count moves with it."""
-    assert binary_result["exact"] == 41, (
-        f"binary subset scored {binary_result['exact']}/63 exact, not the "
-        f"committed 41/63 -- an existing loop's audio changed.{_table(binary_result)}"
+    Hashes the corpus's own audio bytes rather than a detector's score on
+    them, so this is independent of detector quality: a smarter detector
+    reading the same loops correctly must never look like the corpus itself
+    changing."""
+    h = hashlib.sha256()
+    for _bpm, _genre, _pattern, audio in build_corpus(subset="binary"):
+        h.update(audio.tobytes())
+    assert h.hexdigest() == BINARY_CORPUS_SHA256, (
+        "binary subset audio changed -- an existing loop's bytes moved. If "
+        "this is a deliberate PATTERNS or TEMPOS edit, recompute "
+        "BINARY_CORPUS_SHA256 to match."
     )
 
 
