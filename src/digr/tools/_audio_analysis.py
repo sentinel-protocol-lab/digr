@@ -322,10 +322,18 @@ def _tempo_from_onset_env(onset_env: np.ndarray, sr: int = 22050) -> float:
     # tool should not need — but do not remove it without a replacement that
     # holds the accuracy. Run benchmarks/run_tempo_benchmark.py before and
     # after any change here.
+    #
+    # The distance itself must be RELATIVE, not absolute. Candidates reaching
+    # this comparison are routinely an octave apart, and a fixed BPM window is
+    # a different-sized window at each end of this list: 86 sits 1.1 BPM from
+    # 85, and 172 sits 1.7 BPM from 174 -- the same musical closeness, but
+    # absolute distance calls the second one worse, so every close call at the
+    # top of the range is handed to the lower octave. That silently reintroduces
+    # the half-time bias this list exists to counter.
     common_tempos = [85, 90, 100, 110, 120, 128, 140, 150, 160, 170, 174, 180]
 
     def _musical_distance(bpm: float) -> float:
-        return min(abs(bpm - ct) for ct in common_tempos)
+        return min(abs(bpm - ct) / ct for ct in common_tempos)
 
     tempo = min(candidate_tempos, key=_musical_distance)
 

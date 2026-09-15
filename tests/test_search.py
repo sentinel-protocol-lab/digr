@@ -707,14 +707,16 @@ def _synth_break_loop(bpm: float, bars: int, sr: int = 22050, seed: int = 0):
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_unlabelled_loop_discovered_via_double_time(tmp_path, pro_license):
+async def test_bpm_range_unlabelled_loop_discovered_by_detection(tmp_path, pro_license):
     """End-to-end with REAL decoded audio: a 4-bar 172 loop with NO number in
-    its filename must be found by detection-discovery, admitted via the
-    double-time octave reading (the measured collapse -- an unlabelled fast
-    loop detects at half its true tempo, e.g. 86.1 for a real 172), and
-    corroborated by its bar-exact length. Closes the wiring gap the
-    fake-bytes tests can't reach (they fail to decode and hit the exception
-    branch instead)."""
+    its filename must be found by detection-discovery and corroborated by its
+    bar-exact length. Whether that detection lands on 172 directly or needs
+    the double-time octave reading (the measured collapse -- an unlabelled
+    fast loop detecting at half its true tempo, e.g. 86.1 for a real 172) is
+    not pinned here: it is a property of the detector, not of this wiring, and
+    asserting one specific path would make a detector improvement look like a
+    test failure. Closes the wiring gap the fake-bytes tests can't reach (they
+    fail to decode and hit the exception branch instead)."""
     import soundfile as sf
 
     from digr.tools._shared import set_libraries
@@ -729,7 +731,6 @@ async def test_bpm_range_unlabelled_loop_discovered_via_double_time(tmp_path, pr
     result = await search_samples_by_bpm("", min_bpm=170, max_bpm=178)
 
     assert "amen_chop_alpha.wav" in result
-    assert "at double time" in result
     assert "no BPM in the name" in result
     assert "length fits 4 bars at 172" in result
 
