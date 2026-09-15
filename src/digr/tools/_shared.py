@@ -7,7 +7,7 @@ import shutil
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ._query import (
@@ -334,6 +334,14 @@ class SearchOutcome:
     return the files that satisfied the largest subset, and name which term
     was dropped, instead of a dead end.
 
+    ``near_misses`` is the same idea when full matches DO exist -- they lead,
+    and the best near-misses follow them under their own heading. Returning
+    only the full matches lets a single incidental full-AND hit suppress the
+    whole near-miss set, which answers the query worse than a library that did
+    not contain that one file would have.
+    ``matched_terms`` / ``missing_terms`` / ``partial_total`` describe whichever
+    near-miss group is being shown, in either mode.
+
     ``deadline_reached`` says the walk was cut short by the wall-clock ceiling
     before every library was seen. It exists so the tools can SAY SO: a
     truncated search that reads like a complete one is the defect this whole
@@ -346,11 +354,7 @@ class SearchOutcome:
     missing_terms: tuple[str, ...] = ()
     partial_total: int = 0
     deadline_reached: bool = False
-
-
-# Ceiling on partial candidates held in memory while no full match has been
-# seen. Only ever read when the search finds nothing at all.
-_PARTIAL_POOL_CAP = 2000
+    near_misses: list[tuple[str, str]] = field(default_factory=list)
 
 # Wall-clock ceiling on one search across ALL libraries.
 #
@@ -415,22 +419,29 @@ class _WorstFirst:
     bounded top-K needs. Reversing ``__lt__`` puts the WORST kept entry at the
     root, which is the one a better candidate should evict.
 
-    The key already carries the path as its third element, so nothing else
-    needs storing.
+    The key carries the path as its last element. ``terms`` rides alongside
+    because the display has to say WHICH words a near-miss dropped, and that
+    cannot be recovered from the key.
     """
 
-    __slots__ = ("key",)
+    __slots__ = ("key", "terms")
 
-    def __init__(self, key: tuple[float, int, str]) -> None:
+    def __init__(
+        self, key: tuple[int, float, int, str], terms: frozenset[int]
+    ) -> None:
         self.key = key
+        self.terms = terms
 
     def __lt__(self, other: "_WorstFirst") -> bool:
         return self.key > other.key
 
 
-def _rank_paths(scored: list[tuple[float, str]]) -> list[str]:
-    """Order one library's hits: best score, then shorter path, then A-Z."""
-    return [path for _, path in sorted(scored, key=lambda s: rank_key(s[0], s[1]))]
+def _rank_paths(scored: list[tuple[float, str, int]]) -> list[str]:
+    """Order one library's hits by the shared ``rank_key``."""
+    return [
+        path
+        for _, path, _ in sorted(scored, key=lambda s: rank_key(s[0], s[1], s[2]))
+    ]
 
 
 def _balance_across_libraries(
@@ -495,8 +506,12 @@ def search_libraries(
     untested_terms = len(probe_groups) < len(spec.terms)
 
     library_matches: dict[str, list[str]] = {}
-    partial_pool: list[tuple[frozenset[int], float, str, str]] = []
-    found_full = False
+    near_miss_paths: dict[str, list[tuple[float, str, int, frozenset[int]]]] = {}
+    # Every near-miss candidate is COUNTED, not kept. The count is what the
+    # user is told ("2,500 files matched ... but not ..."), and counting is
+    # free; only the handful actually shown has to survive the heap.
+    group_counts: dict[frozenset[int], int] = {}
+    group_scores: dict[frozenset[int], float] = {}
     deadline = time.monotonic() + SEARCH_DEADLINE_SECONDS
     deadline_reached = False
 
@@ -525,36 +540,36 @@ def search_libraries(
             # test might be satisfied on its own, so once one exists every
             # file stays a possible near-miss.
             could_match_some = untested_terms or hits > 0
-            if not could_match_all and not (
-                allow_partial and not found_full and could_match_some
-            ):
+            # Near-misses are gathered for the WHOLE walk, not only until the
+            # first full match. Stopping there lets one incidental full-AND hit
+            # hide a larger, better set, and leaves the pool holding whatever
+            # the walk reached first -- traversal order in a ranking's clothes.
+            if not could_match_all and not (allow_partial and could_match_some):
                 continue
             if is_junk_path(file_path):
                 continue
 
             bag = file_tokens(file_path, root=library, folder_cache=folder_cache)
             result = match_query(spec, bag)
-            if result.matched:
-                found_full = True
-                key = rank_key(result.score, str(file_path))
-                if len(best) < per_library_cap:
-                    heapq.heappush(best, _WorstFirst(key))
-                elif key < best[0].key:
-                    heapq.heapreplace(best, _WorstFirst(key))
-            elif (
-                allow_partial
-                and not found_full
-                and result.matched_terms
-                and len(partial_pool) < _PARTIAL_POOL_CAP
-            ):
-                partial_pool.append(
-                    (
-                        result.matched_terms,
-                        result.score,
-                        str(file_path),
-                        library_name,
-                    )
+            if not result.matched:
+                if not (allow_partial and result.matched_terms):
+                    continue
+                group_counts[result.matched_terms] = (
+                    group_counts.get(result.matched_terms, 0) + 1
                 )
+                group_scores[result.matched_terms] = (
+                    group_scores.get(result.matched_terms, 0.0) + result.score
+                )
+
+            # Full matches and near-misses share ONE bounded heap. rank_key
+            # puts every full match above every near-miss, so a full match can
+            # never be evicted by one -- the ordering does that work, no
+            # separate pool and no cap of its own.
+            key = rank_key(result.score, str(file_path), len(result.matched_terms))
+            if len(best) < per_library_cap:
+                heapq.heappush(best, _WorstFirst(key, result.matched_terms))
+            elif key < best[0].key:
+                heapq.heapreplace(best, _WorstFirst(key, result.matched_terms))
 
             # Checked after the file, not before it, so a deadline that has
             # already passed still yields the ranked results gathered so far
@@ -563,54 +578,80 @@ def search_libraries(
                 deadline_reached = True
                 break
 
-        if best:
-            # rank_key is (-score, len(path), path), so the score and path
-            # come straight back out of it -- _rank_paths keeps its signature
-            # because the partial path below shares it.
-            library_matches[library_name] = _rank_paths(
-                [(-entry.key[0], entry.key[2]) for entry in best]
-            )
+        # rank_key is (-matched_count, -score, len(path), path), so score, path
+        # and term count all come straight back out of it.
+        full: list[tuple[float, str, int]] = []
+        near: list[tuple[float, str, int, frozenset[int]]] = []
+        for entry in best:
+            count = -entry.key[0]
+            row = (-entry.key[1], entry.key[3], count)
+            if count == len(spec.terms):
+                full.append(row)
+            else:
+                near.append((*row, entry.terms))
 
-    if library_matches:
-        return SearchOutcome(
-            matches=_balance_across_libraries(library_matches, max_results),
-            deadline_reached=deadline_reached,
-        )
+        if full:
+            library_matches[library_name] = _rank_paths(full)
+        if near:
+            near_miss_paths[library_name] = near
 
-    if not partial_pool:
+    if not group_counts and not library_matches:
         return SearchOutcome(matches=[], deadline_reached=deadline_reached)
 
-    # Stage 8: group the near-misses by exactly which terms they satisfied,
-    # and show the biggest, best subset -- "matched 174 + break but not dark".
-    groups: dict[frozenset[int], list[tuple[float, str, str]]] = {}
-    for terms, score, path, lib_name in partial_pool:
-        groups.setdefault(terms, []).append((score, path, lib_name))
+    # Stage 8: group near-misses by exactly which terms they satisfied and show
+    # the biggest, best subset -- "matched 174 + break but not dark". The group
+    # is chosen from the COMPLETE counts, not from the survivors in the heap,
+    # so the number the user is told is the real one.
+    best_terms: frozenset[int] | None = None
+    if group_counts:
+        best_terms = max(
+            group_counts,
+            key=lambda terms: (len(terms), group_counts[terms], group_scores[terms]),
+        )
 
-    best_terms, best_files = max(
-        groups.items(),
-        key=lambda item: (
-            len(item[0]),
-            len(item[1]),
-            sum(score for score, _, _ in item[1]),
+    def _near_miss_slice(budget: int) -> list[tuple[str, str]]:
+        if best_terms is None or budget <= 0:
+            return []
+        by_library = {
+            lib: _rank_paths([row[:3] for row in rows if row[3] == best_terms])
+            for lib, rows in near_miss_paths.items()
+        }
+        by_library = {lib: paths for lib, paths in by_library.items() if paths}
+        if not by_library:
+            return []
+        return _balance_across_libraries(by_library, budget)
+
+    describe = {
+        "matched_terms": tuple(spec.terms[i].text for i in sorted(best_terms))
+        if best_terms is not None
+        else (),
+        "missing_terms": tuple(
+            term.text
+            for i, term in enumerate(spec.terms)
+            if best_terms is not None and i not in best_terms
         ),
-    )
+        "partial_total": group_counts.get(best_terms, 0) if best_terms else 0,
+    }
 
-    by_library: dict[str, list[tuple[float, str]]] = {}
-    for score, path, lib_name in best_files:
-        by_library.setdefault(lib_name, []).append((score, path))
+    if library_matches:
+        matches = _balance_across_libraries(library_matches, max_results)
+        # Near-misses fill only what the full matches left over, so a query
+        # with plenty of exact hits shows none at all. That is what keeps this
+        # from needing a "when are there too few results" constant.
+        return SearchOutcome(
+            matches=matches,
+            near_misses=_near_miss_slice(max_results - len(matches)),
+            deadline_reached=deadline_reached,
+            **describe,
+        )
 
+    # Nothing matched every term: the near-misses ARE the result, and the
+    # wording says so. Unchanged from before.
     return SearchOutcome(
-        matches=_balance_across_libraries(
-            {lib: _rank_paths(items) for lib, items in by_library.items()},
-            max_results,
-        ),
+        matches=_near_miss_slice(max_results),
         partial=True,
-        matched_terms=tuple(spec.terms[i].text for i in sorted(best_terms)),
-        missing_terms=tuple(
-            term.text for i, term in enumerate(spec.terms) if i not in best_terms
-        ),
-        partial_total=len(best_files),
         deadline_reached=deadline_reached,
+        **describe,
     )
 
 

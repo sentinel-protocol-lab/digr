@@ -36,10 +36,19 @@ async def test_search_finds_samples(mock_libraries):
 
 @pytest.mark.asyncio
 async def test_search_multi_keyword(mock_libraries):
+    """AND semantics: a file missing one of the words is not a MATCH.
+
+    It may still appear below, under the near-miss heading, and the assertion
+    is written against the match section alone for that reason -- the point
+    this pins is that "kick 808" never presents an 808-less file as a hit, not
+    that such a file is unmentionable.
+    """
     result = await search_samples("kick 808", max_results=10)
-    assert "kick_808" in result
-    # Should NOT match kick_acoustic (no "808" in path)
-    assert "kick_acoustic" not in result
+    matched_section = result.split("Near misses")[0]
+    assert "kick_808" in matched_section
+    assert "kick_acoustic" not in matched_section
+    # ...and when it does appear, it is labelled with the word it dropped.
+    assert "matched 'kick' but not '808'" in result
 
 
 @pytest.mark.asyncio
@@ -204,6 +213,80 @@ async def test_partial_match_results_are_collectable(vocabulary_library):
     await search_samples("dark 174 break", max_results=20)
     cached = get_last_search_results()
     assert any("dnb_break" in path for path, _ in cached)
+
+
+@pytest.mark.asyncio
+async def test_full_match_no_longer_hides_the_near_misses(symptom_c_library):
+    """Symptom C: one incidental full-AND hit used to suppress the whole
+    near-miss set, so the query answered worse than if that file did not exist.
+    """
+    result = await search_samples("dark 174 break", max_results=20)
+    # The genuine full match is still there...
+    assert "break_hit.wav" in result
+    # ...and so are the near-misses it used to hide.
+    assert "174_break_loop.wav" in result
+    assert "amen_174_break_01.wav" in result
+    # Still SAYS which term they dropped -- a near-miss that reads like an
+    # exact match is the silent-degradation failure this path exists to avoid.
+    assert "but not" in result
+    assert "'dark'" in result
+
+
+@pytest.mark.asyncio
+async def test_full_match_outranks_a_higher_scoring_partial(symptom_c_library):
+    """The flat-score trap. `174_break_loop.wav` scores HIGHER than the full
+    match (two filename-exact hits plus the all-in-filename bonus), so merging
+    on raw score alone would put a file that ignores "dark" above one that
+    honours every typed word.
+    """
+    result = await search_samples("dark 174 break", max_results=20)
+    assert result.index("break_hit.wav") < result.index("174_break_loop.wav")
+
+
+@pytest.mark.asyncio
+async def test_near_miss_pool_is_not_capped_at_the_first_n(partial_overflow_library):
+    """The partial pool kept the FIRST 2,000 candidates in traversal order --
+    §Y's rank-after-truncate defect, still live in the partial path.
+    """
+    result = await search_samples("zzz 174 break", max_results=20)
+    assert "2500" in result
+
+
+@pytest.mark.asyncio
+async def test_all_full_matches_keep_the_old_single_section_layout(mock_libraries):
+    """When there are no near-misses to add, the output must be byte-identical
+    to before -- same precedent as #3b's labelled-only case.
+    """
+    result = await search_samples("kick", max_results=10)
+    assert result.startswith("Found samples matching 'kick' (showing")
+    assert "but not" not in result
+    assert "No exact match" not in result
+
+
+@pytest.mark.asyncio
+async def test_near_misses_do_not_displace_full_matches(symptom_c_library):
+    """Near-misses fill only the slots the full matches left over -- which is
+    what spares this from needing a "too few results" threshold constant. With
+    room for exactly one result, the exact hit takes it.
+    """
+    result = await search_samples("dark 174 break", max_results=1)
+    assert "break_hit.wav" in result
+    assert "Near misses" not in result
+
+
+@pytest.mark.asyncio
+async def test_mixed_results_are_cached_in_displayed_order(symptom_c_library):
+    """`collect_search_results` copies BY NUMBER, so a cache that disagrees with
+    the displayed order copies the wrong file.
+    """
+    result = await search_samples("dark 174 break", max_results=20)
+    cached = get_last_search_results()
+    displayed = [
+        line.split(". ", 1)[1].strip()
+        for line in result.splitlines()
+        if line and line[0].isdigit() and ". " in line
+    ]
+    assert [Path(path).name for path, _ in cached] == displayed
 
 
 @pytest.mark.asyncio

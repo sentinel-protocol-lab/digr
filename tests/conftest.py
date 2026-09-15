@@ -161,6 +161,61 @@ def vocabulary_library(tmp_path_factory):
 
 
 @pytest.fixture
+def symptom_c_library(tmp_path_factory):
+    """One incidental full-AND match alongside a much larger near-miss set.
+
+    Modelled on the real drive, where "dark 174 break" returns a single genuine
+    hit and hides 58 better near-misses. The full match is deliberately scored
+    LOWER than the near-misses (its terms land on folders, theirs on filenames)
+    so that ranking on raw score alone would put a file that ignores "dark"
+    above one that honours it.
+    """
+    lib = tmp_path_factory.mktemp("symptom_c_library")
+
+    files = [
+        # The single full match: "dark" and "174" land on FOLDERS, so it scores
+        # 2 + 2 + 3 = 7 with no all-in-filename bonus.
+        "Dark/174/break_hit.wav",
+        # Near-misses: both terms in the FILENAME, so 3 + 3 + 2 = 8 -- higher
+        # than the full match above.
+        "Loops/174_break_loop.wav",
+    ]
+    files += [f"Loops/amen_174_break_{i:02}.wav" for i in range(1, 11)]
+
+    for relative in files:
+        path = lib / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"Symptom C Library": lib})
+    return lib
+
+
+@pytest.fixture
+def partial_overflow_library(tmp_path_factory):
+    """More near-misses than the old first-N partial pool cap would hold.
+
+    §Z-5 recorded that no fixture anywhere overflows a cap AND exercises the
+    partial path at the same time, which left the §Z-1.1 two-bar prefilter
+    resting on two tests written for something else. This is that fixture.
+
+    Every file is in ONE directory, per §Z-1.8: split across folders, the
+    filesystem can hand over a convenient order and let a first-N cap look
+    correct by luck.
+    """
+    lib = tmp_path_factory.mktemp("partial_overflow_library")
+    folder = lib / "Breaks"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # 2,500 near-misses -- comfortably past the 2,000 first-N cap.
+    for i in range(2500):
+        (folder / f"amen_174_break_{i:04}.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"Partial Overflow Library": lib})
+    return lib
+
+
+@pytest.fixture
 def bpm_range_library(tmp_path_factory):
     """Shakers labelled only by a bare number in their filename, like
     "..._172_...", with no literal "bpm" word alongside it -- exactly what

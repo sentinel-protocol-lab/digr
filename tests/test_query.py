@@ -555,8 +555,20 @@ class TestRanking:
 
     def test_rank_key_orders_by_score_then_length_then_alphabetically(self):
         rows = [(1.0, "bbb"), (5.0, "zzzzzz"), (5.0, "aaa"), (5.0, "aab")]
-        ordered = [path for _, path in sorted(rows, key=lambda r: rank_key(*r))]
+        ordered = [
+            path for _, path in sorted(rows, key=lambda r: rank_key(r[0], r[1], 1))
+        ]
         assert ordered == ["aaa", "aab", "zzzzzz", "bbb"]
+
+    def test_matching_more_terms_beats_any_score(self):
+        """The flat-score trap: _score_term SUMS per-term scores, so two
+        filename-exact hits (10.0) outscore three substring hits (1.5). Ranking
+        on score alone would put a result that ignored a typed word above one
+        that honoured every word.
+        """
+        rows = [(10.0, "two_of_three.wav", 2), (1.5, "all_three.wav", 3)]
+        ordered = [row[1] for row in sorted(rows, key=lambda r: rank_key(*r))]
+        assert ordered == ["all_three.wav", "two_of_three.wav"]
 
 
 class TestPrefilter:

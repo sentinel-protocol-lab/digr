@@ -731,9 +731,21 @@ def match_query(spec: QuerySpec, bag: TokenBag) -> MatchResult:
     )
 
 
-def rank_key(score: float, path: str) -> tuple[float, int, str]:
-    """Deterministic ordering: best score first, then shorter path, then A-Z."""
-    return (-score, len(path), path)
+def rank_key(
+    score: float, path: str, matched_count: int
+) -> tuple[int, float, int, str]:
+    """Ordering: most terms satisfied, then best score, shorter path, A-Z.
+
+    Term count LEADS, and it has to. ``_score_term`` sums per-term scores, so a
+    file that satisfied FEWER terms can still carry the larger number: two
+    filename-exact hits (3.0 + 3.0, plus the all-in-filename bonus) outscore
+    three substring hits (0.5 x 3). Ordering on score alone would put a result
+    that ignored a word the user typed ABOVE one that honoured every word.
+
+    With term count first, "a full match always outranks a near-miss" stops
+    being a rule anything has to enforce and becomes a property of the order.
+    """
+    return (-matched_count, -score, len(path), path)
 
 
 # ---------------------------------------------------------------------------
