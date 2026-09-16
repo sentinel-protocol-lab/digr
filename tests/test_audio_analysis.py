@@ -10,13 +10,16 @@ from digr.tools._audio_analysis import (
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
+    SOURCE_LABEL_RELATIVE,
     _tempo_from_onset_env,
     compute_chroma,
+    detect_key_with_hint,
     detect_tempo,
     detect_tempo_with_hint,
     get_duration,
     load_audio,
 )
+from digr.tools._query import MODE_MINOR
 from tempo_corpus import make_loop
 
 
@@ -385,3 +388,81 @@ class TestCommonTempoDistance:
         y = make_loop(140.0, "fourfloor", bars=4, seed=0)
         tempo = detect_tempo(y, sr=22050)
         assert tempo == pytest.approx(139.7, abs=1.0), f"expected ~140, got {tempo}"
+
+
+def _tone(freq: float, seconds: float = 3.0, sr: int = 22050) -> np.ndarray:
+    """A steady sine, so the detected pitch class is known and controllable."""
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    return (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+
+
+_A4 = 440.00  # pitch class 9
+_C4 = 261.63  # pitch class 0
+_E4 = 329.63  # pitch class 4
+
+
+class TestKeyFilenameHint:
+    """Key detection is the loudest pitch class in the file, which is a
+    different quantity from the key -- measured at 29.6% exact against real
+    labelled audio, with the fifth its single most common answer. A written
+    label is better evidence than anything detection can produce, so the same
+    label-wins rule tempo already follows applies here, harder.
+    """
+
+    def test_a_written_label_beats_a_disagreeing_detection(self):
+        """The file says A minor and sounds like E. It is a file in A minor.
+        Before this, the measurement won and the producer's own statement was
+        discarded."""
+        result = detect_key_with_hint(_tone(_E4), sr=22050, filename="Bass_Am.wav")
+
+        assert result.pitch == 9
+        assert result.mode == MODE_MINOR
+        assert result.name == "A minor"
+        assert result.source == SOURCE_LABEL_ONLY
+        # What was actually measured stays reachable, so a caller can report
+        # the disagreement instead of hiding it.
+        assert result.detected_pitch == 4
+
+    def test_agreement_is_reported_as_corroboration_not_as_the_label(self):
+        result = detect_key_with_hint(_tone(_A4), sr=22050, filename="Bass_Am.wav")
+
+        assert result.source == SOURCE_LABEL_CONFIRMED
+        assert result.pitch == result.detected_pitch == 9
+
+    def test_landing_on_the_relative_key_is_its_own_verdict(self):
+        """A minor and C major share all seven notes, so detecting C on a file
+        labelled Am is a near-miss with a name -- not the same failure as
+        landing somewhere unrelated."""
+        result = detect_key_with_hint(_tone(_C4), sr=22050, filename="Bass_Am.wav")
+
+        assert result.source == SOURCE_LABEL_RELATIVE
+        assert result.pitch == 9
+        assert result.detected_pitch == 0
+
+    def test_an_unlabelled_file_still_reports_a_measurement(self):
+        """The feature still works where there is nothing to defer to."""
+        result = detect_key_with_hint(_tone(_E4), sr=22050, filename="untitled.wav")
+
+        assert result.source == SOURCE_DETECTED
+        assert result.pitch == result.detected_pitch == 4
+
+    def test_a_measured_key_never_claims_a_mode(self):
+        """Detection compares pitch-class energy. Nothing in that can separate
+        A minor from C major, so the mode must stay unstated rather than be
+        filled in with a default."""
+        result = detect_key_with_hint(_tone(_A4), sr=22050, filename="untitled.wav")
+
+        assert result.mode is None
+        assert result.name == "A"
+
+    def test_silence_does_not_corroborate_anything(self):
+        """An all-zero chroma has a loudest pitch class the way an empty room
+        has a loudest voice. The label is still returned -- it is all there
+        is -- but must not come back marked as confirmed."""
+        silence = np.zeros(22050, dtype=np.float32)
+
+        result = detect_key_with_hint(silence, sr=22050, filename="Bass_Cm.wav")
+
+        assert result.source == SOURCE_LABEL_ONLY
+        assert result.pitch == 0
+        assert result.confidence == 0.0

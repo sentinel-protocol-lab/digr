@@ -3,11 +3,14 @@
 from pathlib import Path
 
 from digr.tools._query import (
+    MODE_MAJOR,
+    MODE_MINOR,
     BpmTarget,
     compound_join,
     expansions,
     extract_bpm_from_filename,
     extract_key_from_filename,
+    extract_key_label_from_filename,
     file_tokens,
     match_query,
     parse_query,
@@ -15,6 +18,7 @@ from digr.tools._query import (
     prefilter_probes,
     range_term,
     rank_key,
+    relative_pitch,
     stem,
     strip_separators,
     tokenize,
@@ -378,6 +382,38 @@ class TestExtractKeyFromFilename:
         assert extract_key_from_filename("Aisha - The Creator D minor 117 BPM.wav") == 2
         assert extract_key_from_filename("061 OSRSRW F# - Zenhiser.wav") == 6
         assert extract_key_from_filename("Ghosthack_Bass_38_Am.wav") == 9
+
+    def test_the_mode_is_kept_when_the_filename_writes_one(self):
+        """Detection cannot tell major from minor, so a written mode is the
+        only place that half of the answer can come from. It used to be parsed
+        and thrown away."""
+        assert extract_key_label_from_filename("Ghosthack_Bass_38_Am.wav") == (
+            9,
+            MODE_MINOR,
+        )
+        assert extract_key_label_from_filename("70sDanceChords_130_Amaj.wav") == (
+            9,
+            MODE_MAJOR,
+        )
+        assert extract_key_label_from_filename("Down Phrase Emin.wav") == (4, MODE_MINOR)
+        assert extract_key_label_from_filename("Unbreakable D major.wav") == (
+            2,
+            MODE_MAJOR,
+        )
+
+    def test_a_bare_pitch_reports_no_mode_rather_than_guessing_one(self):
+        """"Bass_A.wav" states a pitch and nothing else. Filling in major
+        would invent the difference the mode exists to record."""
+        label = extract_key_label_from_filename("061 OSRSRW F# - Zenhiser.wav")
+        assert label == (6, None)
+        assert label.mode is None
+
+    def test_relative_pitch_names_the_key_sharing_the_same_notes(self):
+        """A minor and C major are the same seven notes. Landing on one when
+        the other is written is a near-miss with a name, not a plain error."""
+        assert relative_pitch(9, MODE_MINOR) == 0  # A minor -> C major
+        assert relative_pitch(0, MODE_MAJOR) == 9  # C major -> A minor
+        assert relative_pitch(relative_pitch(9, MODE_MINOR), MODE_MAJOR) == 9
 
     def test_enharmonics_normalise_to_one_pitch(self):
         """"Ds" is what this tool appends, "D#" and "Eb" are what packs write.

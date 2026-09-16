@@ -20,11 +20,15 @@ from scipy.signal import resample_poly, stft as scipy_stft
 # importing the optional audio engine. Re-exported here so existing callers
 # are unaffected.
 from ._query import (
+    PITCH_NAMES,
     SOURCE_DETECTED,
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
+    SOURCE_LABEL_RELATIVE,
     extract_bpm_from_filename,
+    extract_key_label_from_filename,
+    relative_pitch,
 )
 
 # How close detection must land to a filename label before the two count as
@@ -559,6 +563,103 @@ def key_confidence(chroma: np.ndarray) -> float:
     if sorted_energy[0] < 1e-10:
         return 0.0
     return float(1.0 - sorted_energy[1] / sorted_energy[0])
+
+
+class KeyResult(NamedTuple):
+    """A key, how much to trust it, and where it came from.
+
+    ``mode`` is None whenever the key was measured rather than read: detection
+    compares pitch-class energy and has no way to tell A minor from C major,
+    so claiming either would be inventing the half of the answer it cannot
+    compute. A filename that says "Am" is the only source of a mode here.
+    """
+
+    pitch: int
+    mode: str | None
+    confidence: float
+    source: str
+    # What the audio measured, before any label was substituted for it. Equal
+    # to ``pitch`` when ``source`` is detected; when it is not, this is the
+    # only way a caller can say WHAT detection found rather than merely that
+    # it disagreed.
+    detected_pitch: int
+
+    @property
+    def name(self) -> str:
+        """The key as written, with the mode only when one is known."""
+        pitch_name = PITCH_NAMES[self.pitch]
+        return pitch_name if self.mode is None else f"{pitch_name} {self.mode}"
+
+    @property
+    def detected_name(self) -> str:
+        return PITCH_NAMES[self.detected_pitch]
+
+
+def detect_key_with_hint(
+    y: np.ndarray,
+    sr: int = 22050,
+    filename: str = "",
+) -> KeyResult:
+    """Detect key, cross-referenced against a key tag in the filename.
+
+    Same rule as ``detect_tempo_with_hint``, for the same reason: a label is
+    the producer's statement about their own file and detection is an
+    estimate, so the statement wins. It matters more here than for tempo.
+    Detection is the loudest pitch class across the file, which is a different
+    quantity from the key -- the fifth is frequently as loud as the tonic --
+    and it cannot express major/minor at all, so a written label is strictly
+    better evidence than anything this function can measure.
+
+    ==================  ===============  ======================================
+    detection vs label  ``source``       meaning
+    ==================  ===============  ======================================
+    same pitch          confirmed        measured independently and agreed
+    its relative        label_relative   found a key sharing all seven notes
+    neither             label_only       could not corroborate the label
+    no label at all     detected         ``pitch`` is a measurement
+    ==================  ===============  ======================================
+
+    Only the last row returns a pitch that was MEASURED; the rest return one
+    that was READ. Callers must not describe a label-sourced key as detected.
+    """
+    chroma = compute_chroma(y, sr=sr)
+    energy = np.sum(chroma, axis=1)
+    confidence = key_confidence(chroma)
+    label = extract_key_label_from_filename(filename)
+
+    # Silence has a loudest pitch class the way an empty room has a loudest
+    # voice. Detection is unusable here, so a label -- if there is one -- is
+    # all there is, and it must not be reported as corroborated.
+    if float(energy.max()) < 1e-10:
+        if label is not None:
+            return KeyResult(label.pitch, label.mode, 0.0, SOURCE_LABEL_ONLY, 0)
+        return KeyResult(0, None, 0.0, SOURCE_DETECTED, 0)
+
+    detected = int(np.argmax(energy))
+
+    if label is None:
+        return KeyResult(detected, None, confidence, SOURCE_DETECTED, detected)
+
+    if label.pitch == detected:
+        return KeyResult(
+            label.pitch,
+            label.mode,
+            min(1.0, confidence + 0.3),
+            SOURCE_LABEL_CONFIRMED,
+            detected,
+        )
+
+    # Partial corroboration, and only sayable when the label wrote its mode:
+    # which key is the relative of which depends on that mode, so a bare "A"
+    # gives no relationship to test.
+    if label.mode is not None and detected == relative_pitch(label.pitch, label.mode):
+        return KeyResult(
+            label.pitch, label.mode, confidence, SOURCE_LABEL_RELATIVE, detected
+        )
+
+    return KeyResult(
+        label.pitch, label.mode, min(confidence, 0.25), SOURCE_LABEL_ONLY, detected
+    )
 
 
 # ---------------------------------------------------------------------------

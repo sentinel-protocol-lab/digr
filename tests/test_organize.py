@@ -157,6 +157,14 @@ def _write_loop(directory, name: str, bpm: float):
     return path
 
 
+def _write_tone(directory, name: str, freq: float, sr: int = 22050):
+    """A steady sine, so the key detection lands somewhere known."""
+    t = np.linspace(0, 3.0, int(sr * 3.0), endpoint=False)
+    path = directory / name
+    sf.write(str(path), (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32), sr)
+    return path
+
+
 @pytest.mark.asyncio
 async def test_rename_keeps_a_labelled_files_own_tempo(pro_license, tmp_path):
     """The real-drive defect. The file says 117 and measures ~123; the rename
@@ -209,10 +217,39 @@ async def test_rename_still_appends_to_an_unlabelled_file(pro_license, tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_rename_does_not_put_a_detected_key_beside_a_labelled_one(
+    pro_license, tmp_path
+):
+    """The file states A minor and sounds like E, and the rename used to
+    append the guess anyway: "Bass_Am.wav" became "Bass_Am_E.wav" -- our
+    estimate written into the user's filename beside the producer's own
+    answer, as though the two were equal findings. Detection agreeing was the
+    only case the old dedup recognised, so disagreement -- the common case --
+    always appended."""
+    path = _write_tone(tmp_path, "Bass_Am.wav", 329.63)  # E against a label of Am
+
+    preview = await rename_with_metadata(str(path), include_key=True, confirm=False)
+
+    assert "Bass_Am_E" not in preview
+    assert "already labelled" in preview
+    assert "(SKIPPED)" in preview
+
+
+@pytest.mark.asyncio
+async def test_rename_still_appends_a_key_to_an_unlabelled_file(pro_license, tmp_path):
+    """The feature still works where the name states nothing to defer to."""
+    path = _write_tone(tmp_path, "untitled_tone.wav", 329.63)
+
+    preview = await rename_with_metadata(str(path), include_key=True, confirm=False)
+
+    assert "-> untitled_tone_E.wav" in preview
+
+
+@pytest.mark.asyncio
 async def test_rename_metadata_flags_are_both_off_by_default(pro_license, tmp_path):
     """Both flags write a permanent change on the strength of an estimate, so
-    neither may happen unless asked for. Key detection in particular has never
-    had its accuracy measured."""
+    neither may happen unless asked for -- key detection measures 29.6% exact
+    against real labelled audio, which is what makes the default matter."""
     path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
 
     result = await rename_with_metadata(str(path))

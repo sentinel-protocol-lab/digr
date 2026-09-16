@@ -6,7 +6,6 @@ from typing import Union
 from ._query import (
     SOURCE_DETECTED,
     extract_bpm_from_filename,
-    extract_key_from_filename,
     file_tokens,
     match_query,
     parse_query,
@@ -273,11 +272,9 @@ async def rename_with_metadata(
             return warming
 
     audio_engine = None
-    np = None
     if needs_audio:
         try:
             from . import _audio_analysis as audio_engine
-            import numpy as np
         except ImportError:
             return (
                 "ERROR: Audio analysis requires the 'audio' extras. "
@@ -336,19 +333,25 @@ async def rename_with_metadata(
                                 already.append("from the filename, not measured")
 
                 if include_key:
-                    chroma = audio_engine.compute_chroma(y, sr=sr)
-                    key_idx = int(np.argmax(np.sum(chroma, axis=1)))
+                    key_result = audio_engine.detect_key_with_hint(
+                        y, sr=sr, filename=src.name
+                    )
                     key_names = [
                         "C", "Cs", "D", "Ds", "E", "F",
                         "Fs", "G", "Gs", "A", "As", "B",
                     ]
-                    # Enharmonics normalise, so a stem ending "D#m" already
-                    # states the key that would be appended as "Ds".
-                    existing_key = extract_key_from_filename(stem)
-                    if existing_key == key_idx:
-                        already.append(f"{key_names[key_idx]} already labelled")
+                    # A key that came off the name is already ON the name.
+                    # Appending it back would restate it, and appending a
+                    # DETECTED key next to a stated one would sit our estimate
+                    # beside the producer's own answer as though both were
+                    # findings. Enharmonics normalise, so a stem ending "D#m"
+                    # counts as already stating what would append as "Ds".
+                    if key_result.source != SOURCE_DETECTED:
+                        already.append(
+                            f"{key_names[key_result.pitch]} already labelled"
+                        )
                     else:
-                        parts.append(key_names[key_idx])
+                        parts.append(key_names[key_result.pitch])
 
             suffix = src.suffix
             new_name = prefix + "_" + stem if prefix else stem
