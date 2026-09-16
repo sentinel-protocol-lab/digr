@@ -203,17 +203,24 @@ def is_one_shot_duration(duration: float, bpm: float) -> bool:
     bar_seconds = 240.0 / bpm
     return duration < bar_seconds * ONE_SHOT_BAR_FRACTION
 
-# Where a reported tempo came from. Defined here, beside the filename BPM
-# parser, rather than in the audio engine: the engine is an optional extra
-# that the free path must never import, but the code that DISPLAYS a tempo
+# Where a reported tempo OR key came from. Defined here, beside the filename
+# parsers, rather than in the audio engine: the engine is an optional extra
+# that the free path must never import, but the code that DISPLAYS a value
 # needs to name these cases. Same reason extract_bpm_from_filename lives here.
 #
-# The distinction is load-bearing. A tempo read off the filename is not a
+# The distinction is load-bearing. A value read off the filename is not a
 # measurement, and presenting one as "confirmed by detection" compares a label
 # against itself and tells the user something false.
+#
+# Tempo and key share this vocabulary because they share the rule: the label is
+# the producer's statement about their own file, detection is an estimate, and
+# the statement wins. Only the partial-corroboration case differs, because a
+# near-miss means something different for each -- an octave out for tempo, the
+# relative major/minor for key.
 SOURCE_DETECTED = "detected"
 SOURCE_LABEL_CONFIRMED = "label_confirmed"  # label kept; detection independently agreed
 SOURCE_LABEL_HARMONIC = "label_harmonic"  # label kept; detection found an octave of it
+SOURCE_LABEL_RELATIVE = "label_relative"  # label kept; detection found its relative key
 SOURCE_LABEL_ONLY = "label_only"  # label kept; detection did not agree at all
 
 
@@ -293,23 +300,54 @@ _PITCH_CLASSES = {
     "g#": 8, "ab": 8, "a": 9, "as": 10, "a#": 10, "bb": 10, "b": 11, "cb": 11,
 }
 
+# The inverse of _PITCH_CLASSES, for turning a detected or parsed pitch back
+# into something to show. Sharps throughout: one spelling has to be picked, and
+# a flat-keyed file carries its own spelling in its name anyway.
+PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+MODE_MAJOR = "major"
+MODE_MINOR = "minor"
+
+# Which written modes count as which. "m" is minor: "Am" is how every pack on
+# earth writes A minor, and no pack writes major that way.
+_MINOR_WORDS = frozenset({"m", "min", "minor"})
+
 # A key tag is a pitch name standing alone as a token, optionally followed by a
 # mode. Requiring a token boundary is what keeps "As" out of "Assault" and the
 # "F" of "F.wav" apart from the "f" inside "Reverb_fx".
 _KEY_TOKEN_RE = re.compile(
-    r'(?:^|[\s_\-\[\(])([A-Ga-g](?:[#sb])?)(?:[\s_\-]?(?:m|min|minor|maj|major))?'
+    r'(?:^|[\s_\-\[\(])([A-Ga-g](?:[#sb])?)(?:[\s_\-]?(m|min|minor|maj|major))?'
     r'(?=$|[\s_\-\]\)\.])'
 )
 
 
-def extract_key_from_filename(filename: str) -> int | None:
-    """Extract a musical key from a filename as a pitch class (0=C .. 11=B).
+class KeyLabel(NamedTuple):
+    """A key stated in a filename: a pitch class, and a mode when written.
 
-    Returns the pitch class only -- major/minor is parsed to consume the
-    suffix, then discarded, because the caller appends a bare pitch name and
-    only needs to know whether that pitch is already stated.
+    ``mode`` is None for a bare pitch ("Bass_A.wav"). That is not the same as
+    major -- it is the producer not having said, and a caller must not fill it
+    in, because the difference between A major and A minor is the whole point
+    of knowing the key.
+    """
 
-    Enharmonics normalise to one number, so "D#m" and "Ds" both return 3.
+    pitch: int
+    mode: str | None
+
+
+def relative_pitch(pitch: int, mode: str) -> int:
+    """The tonic of the relative major/minor -- the key sharing these notes.
+
+    A minor and C major contain the same seven notes, so a detector that finds
+    one when the other is written has not failed the way a tritone away is a
+    failure. Naming the relationship is what lets a caller say so.
+    """
+    return (pitch + 3) % 12 if mode == MODE_MINOR else (pitch + 9) % 12
+
+
+def extract_key_label_from_filename(filename: str) -> KeyLabel | None:
+    """Extract a key tag from a filename, keeping the mode when it is written.
+
+    Enharmonics normalise to one pitch number, so "D#m" and "Ds" both give 3.
     Returns None when no token reads as a key.
 
     Lives beside ``extract_bpm_from_filename`` and for the same reason: pure
@@ -325,7 +363,7 @@ def extract_key_from_filename(filename: str) -> int | None:
     # earlier one is far more likely a word that happens to look like a pitch.
     found = None
     for match in _KEY_TOKEN_RE.finditer(name):
-        token = match.group(1)
+        token, mode_word = match.group(1), match.group(2)
         # A bare single letter is only a key when written in the conventional
         # upper case. Lower case is how ordinary words are spelled, and "a"
         # and "b" in particular are far more often English than music.
@@ -333,8 +371,22 @@ def extract_key_from_filename(filename: str) -> int | None:
             continue
         pitch = _PITCH_CLASSES.get(token.lower())
         if pitch is not None:
-            found = pitch
+            mode = None
+            if mode_word is not None:
+                mode = MODE_MINOR if mode_word in _MINOR_WORDS else MODE_MAJOR
+            found = KeyLabel(pitch, mode)
     return found
+
+
+def extract_key_from_filename(filename: str) -> int | None:
+    """The pitch class of a filename's key tag (0=C .. 11=B), or None.
+
+    A view over ``extract_key_label_from_filename`` for callers that only need
+    to know which pitch is stated -- deduping an appended tag, say. One parser
+    spelled once: a second copy of the regex would drift from this one silently.
+    """
+    label = extract_key_label_from_filename(filename)
+    return None if label is None else label.pitch
 
 
 # ---------------------------------------------------------------------------

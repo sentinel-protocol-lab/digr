@@ -8,6 +8,7 @@ from ._query import (
     SOURCE_DETECTED,
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
+    SOURCE_LABEL_RELATIVE,
     is_one_shot_duration,
 )
 from ._shared import audio_warming_message, identify_library, require_pro
@@ -19,9 +20,8 @@ def _require_audio():
     """Import audio analysis module, raising a clear error if not installed."""
     try:
         from . import _audio_analysis as audio
-        import numpy as np
 
-        return audio, np
+        return audio
     except ImportError:
         raise RuntimeError(
             "Audio analysis requires the 'audio' extras.\n"
@@ -60,7 +60,7 @@ async def analyze_sample(filepath: str) -> str:
     if warming:
         return warming
 
-    audio, np = _require_audio()
+    audio = _require_audio()
 
     file_path = Path(filepath)
 
@@ -80,12 +80,8 @@ async def analyze_sample(filepath: str) -> str:
         tempo = tempo_result.tempo
         tempo_confidence = tempo_result.confidence
 
-        # Detect key using chromagram analysis
-        chroma = audio.compute_chroma(y, sr=sr)
-        key_idx = int(np.argmax(np.sum(chroma, axis=1)))
-        keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        detected_key = keys[key_idx]
-        confidence = audio.key_confidence(chroma)
+        # Detect key (with filename hint cross-reference)
+        key_result = audio.detect_key_with_hint(y, sr=sr, filename=file_path.name)
 
         #Read the file's true sample rate and duration from its header - not
         # the analysis buffer (resampled to 22050 Hz and capped at 30s).
@@ -125,10 +121,28 @@ async def analyze_sample(filepath: str) -> str:
             result += f"BPM: {tempo:.1f} (low confidence — weak rhythmic content)\n"
         else:
             result += f"BPM: {tempo:.1f}\n"
-        if confidence < 0.35 or duration < 3.0:
-            result += f"Key: {detected_key} (low confidence — likely unreliable for short/transient samples)\n"
+        if key_result.source == SOURCE_LABEL_CONFIRMED:
+            result += (
+                f"Key: {key_result.name} — labelled, confirmed by detection "
+                f"({key_result.detected_name})\n"
+            )
+        elif key_result.source != SOURCE_DETECTED:
+            # Same reasoning as the tempo branch above: the answer came off the
+            # name, and saying so is the difference between reporting a key and
+            # echoing the question back.
+            qualifier = (
+                f"detection found {key_result.detected_name}, its relative key"
+                if key_result.source == SOURCE_LABEL_RELATIVE
+                else f"detection did not agree: {key_result.detected_name}"
+            )
+            result += (
+                f"Key: {key_result.name} — read from the filename, not detected "
+                f"({qualifier})\n"
+            )
+        elif key_result.confidence < 0.35 or duration < 3.0:
+            result += f"Key: {key_result.name} (low confidence — likely unreliable for short/transient samples)\n"
         else:
-            result += f"Key: {detected_key} (estimated)\n"
+            result += f"Key: {key_result.name} (estimated)\n"
         result += f"Duration: {duration:.1f} seconds\n"
         result += f"Sample Rate: {native_sr} Hz\n"
         result += f"Library: {library_name}\n"
