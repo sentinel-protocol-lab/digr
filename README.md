@@ -84,11 +84,16 @@ edit. Remove one the same way: "remove the Packs library."
 | `add_library` | Add a sample library path at runtime | Free |
 | `remove_library` | Remove a sample library by name | Free |
 | `activate_license` | Save a Pro license key and unlock Pro instantly (no restart) | Free |
+| `undo_rename` | Reverse the most recent `rename_with_metadata` batch | Free |
 | `analyze_sample` | Detect BPM and musical key (requires `[audio]`) | Pro |
 | `search_samples_by_bpm` | Search and auto-detect BPM for each result | Pro |
 | `read_midi` | Read MIDI file notes in bar\|beat format | Pro |
 | `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) | Pro |
 | `sort_samples` | Sort into categorized subfolders | Pro |
+
+Every rename `rename_with_metadata` makes is logged, and `undo_rename` can
+reverse the most recent batch — free, with no license required, so a rename
+gone wrong is never stranded behind a licence check.
 
 **Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
 **[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr/pro)**
