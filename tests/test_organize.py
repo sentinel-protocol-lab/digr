@@ -95,6 +95,33 @@ async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
     assert (tmp_path / "sorted").exists()
 
 
+@pytest.mark.asyncio
+async def test_sort_samples_routes_singular_filenames_by_category(
+    singular_filenames_library, pro_license, tmp_path
+):
+    """§V-7: the old check only matched a category name ("kicks") as a raw
+    substring of the full path, so it never found "kicks" inside a real,
+    singularly-named file like "kick.wav" -- the overwhelmingly common
+    convention -- and every one of these fell through to Other. Routing
+    through the shared match engine (its stemmer already handles
+    break<->breaks, its alias map already handles bd<->kick) fixes it."""
+    dest = str(tmp_path / "sorted")
+    result = await sort_samples(
+        "wav",
+        dest,
+        categories="Kicks,Snares,HiHats,Other",
+        max_results=10,
+        confirm=True,
+    )
+    assert "Kicks/: 1 files" in result
+    assert "Snares/: 1 files" in result
+    assert "HiHats/: 1 files" in result
+    assert "Other/:" not in result
+    assert (tmp_path / "sorted" / "Kicks" / "kick.wav").exists()
+    assert (tmp_path / "sorted" / "Snares" / "MTIA_snare.wav").exists()
+    assert (tmp_path / "sorted" / "HiHats" / "hat_1.wav").exists()
+
+
 # ---------------------------------------------------------------------------
 # rename_with_metadata -- the producer's label wins
 # ---------------------------------------------------------------------------

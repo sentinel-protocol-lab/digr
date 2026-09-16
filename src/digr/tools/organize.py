@@ -7,6 +7,9 @@ from ._query import (
     SOURCE_DETECTED,
     extract_bpm_from_filename,
     extract_key_from_filename,
+    file_tokens,
+    match_query,
+    parse_query,
 )
 from ._rename_log import MAX_BATCHES, last_batch, record_batch, replace_last_batch
 from ._shared import (
@@ -522,15 +525,19 @@ async def sort_samples(
         cat_list.remove("Other")
     cat_list.append("Other")
 
-    # Categorize each file
+    # Categorize each file through the same match engine search_samples uses,
+    # rather than a raw substring test -- a raw substring test only finds
+    # "Kicks" as a path component, so a real file named "kick.wav" (singular,
+    # the overwhelmingly common convention) fell through to Other.
+    cat_specs = {cat: parse_query(cat) for cat in cat_list if cat != "Other"}
     sorted_files: dict[str, list[tuple[str, str]]] = {cat: [] for cat in cat_list}
+    folder_cache: dict = {}
     for path, library_name in matches:
-        path_lower = str(path).lower()
+        root = get_libraries().get(library_name)
+        bag = file_tokens(path, root=root, folder_cache=folder_cache)
         matched_cat = "Other"
-        for cat in cat_list:
-            if cat == "Other":
-                continue
-            if cat.lower() in path_lower:
+        for cat, spec in cat_specs.items():
+            if match_query(spec, bag).matched:
                 matched_cat = cat
                 break
         sorted_files[matched_cat].append((path, library_name))

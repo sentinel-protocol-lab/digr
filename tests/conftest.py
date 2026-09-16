@@ -238,6 +238,23 @@ def bpm_range_library(tmp_path_factory):
 
 
 @pytest.fixture
+def singular_filenames_library(tmp_path_factory):
+    """Real packs overwhelmingly name files with the SINGULAR instrument word
+    ("kick.wav", not "kicks.wav"), dumped in a flat folder with no
+    "Kicks"/"Snares"/"HiHats" path component to save a raw plural-substring
+    match. §V-7: this exact shape sent 54 of 63 real files to Other.
+    """
+    lib = tmp_path_factory.mktemp("singular_library")
+    folder = lib / "Downloads"
+    folder.mkdir(parents=True)
+    for name in ("kick.wav", "MTIA_snare.wav", "hat_1.wav"):
+        (folder / name).write_bytes(b"RIFF" + b"\x00" * 40)
+
+    set_libraries({"Singular Library": lib})
+    return lib
+
+
+@pytest.fixture
 def mock_libraries(sample_dir, second_library):
     """Set up mock libraries and return the config."""
     libraries = {

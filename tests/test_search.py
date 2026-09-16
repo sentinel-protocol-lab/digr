@@ -14,7 +14,6 @@ from digr.tools._query import (
 )
 from digr.tools.search import (
     DETECTION_BUDGET_FILES,
-    ONE_SHOT_MAX_DURATION,
     _admit_unlabelled,
     _bar_grid_fits,
     _discover_unlabelled,
@@ -397,14 +396,38 @@ class TestFormatBpmLine:
     no audio decoding needed since this is pure display logic."""
 
     def test_one_shot_no_label(self):
-        assert _format_bpm_line(tempo=287.0, duration=0.8, label=None) == (
+        # 0.2s at 287 BPM is far short of even a quarter bar -- unambiguous
+        # one-shot at any tempo, not just under the old flat cutoff.
+        assert _format_bpm_line(tempo=287.0, duration=0.2, label=None) == (
             "one-shot — no tempo"
         )
 
     def test_one_shot_with_label(self):
-        assert _format_bpm_line(tempo=287.0, duration=0.8, label=172.0) == (
+        assert _format_bpm_line(tempo=287.0, duration=0.2, label=172.0) == (
             "labelled 172 — one-shot, no tempo detected"
         )
+
+    def test_fast_tempo_one_bar_loop_is_not_misclassified_as_one_shot(self):
+        """Regression for the flat-cutoff defect (§V-8): a genuine 1-bar loop
+        at a fast tempo (174 BPM -> 1.38s/bar) used to read as a one-shot
+        purely because 1.38s is under a flat few-second threshold, with no
+        regard for what 1.38s actually means at that tempo."""
+        one_bar_at_174 = 240.0 / 174.0
+        assert (
+            _format_bpm_line(tempo=174.0, duration=one_bar_at_174, label=None)
+            == "174.0"
+        )
+
+    def test_fast_tempo_one_bar_loop_with_label_confirms_instead_of_one_shot(self):
+        one_bar_at_174 = 240.0 / 174.0
+        line = _format_bpm_line(
+            tempo=174.0,
+            duration=one_bar_at_174,
+            label=174.0,
+            source=SOURCE_LABEL_CONFIRMED,
+            detected=174.1,
+        )
+        assert line == "174 (confirmed by detection: 174.1)"
 
     def test_silence_treated_as_one_shot_even_if_long(self):
         """tempo == 0.0 means detect_tempo found no rhythm at all, regardless
@@ -604,16 +627,36 @@ class TestDiscoverUnlabelled:
 
     def test_one_shot_is_never_admitted_regardless_of_detected_tempo(self):
         """Regression for the confidence finding: a one-shot must be
-        rejected on duration ALONE, before admission logic ever runs --
-        even when its "detected" tempo would otherwise land in range."""
+        rejected on duration ALONE, before admission logic ever runs -- even
+        when its "detected" tempo would otherwise land directly in range.
+        Duration is chosen to be too short for even a single bar at the
+        fastest tempo this search could admit (178 BPM -> 1.35s/bar), so the
+        tempo-aware guard rejects it regardless of the search band."""
+        too_short = 240.0 / 178.0 * 0.5  # well under half a bar at 178 BPM
         candidates = [("/lib/shaker_oneshot.wav", "Lib")]
         audio = _FakeAudio(
-            durations={"/lib/shaker_oneshot.wav": ONE_SHOT_MAX_DURATION - 0.1},
-            tempos={"shaker_oneshot.wav": 258.4},  # would pass admission if reached
+            durations={"/lib/shaker_oneshot.wav": too_short},
+            tempos={"shaker_oneshot.wav": 174.0},  # would be admitted directly if reached
         )
         rows, considered = _discover_unlabelled(audio, candidates, BpmTarget(170.0, 178.0))
         assert rows == []
         assert considered == 1  # rejected, but still honestly "considered"
+
+    def test_fast_tempo_short_loop_now_reaches_decode_and_admission(self):
+        """Regression for §V-8: a genuine 1-bar loop at a fast tempo (174 BPM
+        -> 1.38s) used to be rejected before decode purely because 1.38s was
+        under the old flat 3.0s cutoff -- so unlabelled discovery could never
+        find it. It must now reach detection and be admitted."""
+        duration = 240.0 / 174.0  # exactly 1 bar at 174 BPM
+        candidates = [("/lib/short_loop.wav", "Lib")]
+        audio = _FakeAudio(
+            durations={"/lib/short_loop.wav": duration},
+            tempos={"short_loop.wav": 174.0},
+        )
+        rows, considered = _discover_unlabelled(audio, candidates, BpmTarget(170.0, 178.0))
+        assert considered == 1
+        assert len(rows) == 1
+        assert rows[0].filename == "short_loop.wav"
 
     def test_budget_caps_the_number_of_decodes(self):
         """More unlabelled candidates than the budget: exactly
