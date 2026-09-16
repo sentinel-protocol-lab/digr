@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ._query import (
+    BPM_LABEL_TOLERANCE,
     BPM_MAX,
     BPM_MIN,
     SOURCE_DETECTED,
@@ -35,12 +36,9 @@ TRUNCATION_NOTE = (
     "mount."
 )
 
-# How far a detected tempo may drift from a filename/folder label before it
-# is shown as a disagreement rather than a confirmation. Producers don't
-# mislabel BPM, so a label is trusted either way -- this only changes the
-# wording, matching detect_tempo_with_hint's own harmonic tolerance. Also
-# used as the octave-tie-break tolerance for unlabelled detection (below).
-BPM_LABEL_TOLERANCE = 0.08
+# BPM_LABEL_TOLERANCE (imported above, from _query.py, shared with
+# detect_tempo_with_hint's own harmonic tolerance) is also used as the
+# octave-tie-break tolerance for unlabelled detection, below.
 
 # --- Detection-discovery of unlabelled files (Phase 2 #3b) ---
 #

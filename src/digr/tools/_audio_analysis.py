@@ -20,6 +20,9 @@ from scipy.signal import resample_poly, stft as scipy_stft
 # importing the optional audio engine. Re-exported here so existing callers
 # are unaffected.
 from ._query import (
+    BPM_LABEL_TOLERANCE,
+    BPM_MAX,
+    BPM_MIN,
     PITCH_NAMES,
     SOURCE_DETECTED,
     SOURCE_LABEL_CONFIRMED,
@@ -30,6 +33,15 @@ from ._query import (
     extract_key_label_from_filename,
     relative_pitch,
 )
+
+# The ACF's own candidate search range in _tempo_from_onset_env, below --
+# deliberately NOT the same constant as BPM_MIN/BPM_MAX. Those gate what a
+# human-typed label is allowed to say; this gates what the algorithm itself
+# may output from raw audio, a different question, and every tempo-accuracy
+# number this project has measured was taken against this exact range.
+# Narrowing it to BPM_MIN would be an unmeasured change to the detector, not
+# a constant cleanup.
+_DETECTOR_MIN_BPM = 30.0
 
 # How close detection must land to a filename label before the two count as
 # agreeing. Deliberately tighter than the harmonic tolerance below it: this
@@ -241,8 +253,8 @@ def _tempo_from_onset_env(onset_env: np.ndarray, sr: int = 22050) -> float:
     hop_length = 512
     osr = sr / hop_length
 
-    # Lag range corresponding to 30-300 BPM
-    min_bpm, max_bpm = 30.0, 300.0
+    # Lag range corresponding to the detector's own search range
+    min_bpm, max_bpm = _DETECTOR_MIN_BPM, BPM_MAX
     min_lag = max(1, int(np.ceil(60.0 * osr / max_bpm)))
     max_lag = int(np.floor(60.0 * osr / min_bpm))
     max_lag = min(max_lag, len(onset_env) - 1)
@@ -472,7 +484,7 @@ def detect_tempo_with_hint(
         # the producer's label more often, which is the safe direction.
         harmonic_ratios = [0.5, 2.0 / 3.0, 1.5, 2.0]
         for hr in harmonic_ratios:
-            if abs(ratio - hr) < 0.08:  # within ~8% tolerance
+            if abs(ratio - hr) < BPM_LABEL_TOLERANCE:
                 return TempoResult(
                     hint_bpm, tempo_confidence, SOURCE_LABEL_HARMONIC, detected
                 )
@@ -480,8 +492,11 @@ def detect_tempo_with_hint(
         # Detection disagrees entirely with the filename hint (not a
         # recognisable harmonic). Producers don't mislabel BPM, so trust
         # the explicit tag — but flag low confidence since the algorithm
-        # couldn't confirm it independently.
-        if 30.0 <= hint_bpm <= 300.0:
+        # couldn't confirm it independently. hint_bpm is always
+        # extract_bpm_from_filename's own output, already gated to
+        # [BPM_MIN, BPM_MAX], so this re-checks the same bound rather than a
+        # separately-chosen one -- a value outside it cannot reach here.
+        if BPM_MIN <= hint_bpm <= BPM_MAX:
             return TempoResult(
                 hint_bpm, min(tempo_confidence, 0.25), SOURCE_LABEL_ONLY, detected
             )

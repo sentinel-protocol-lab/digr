@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+import digr.tools._audio_analysis as _audio_analysis
 from digr.tools._audio_analysis import (
     SOURCE_DETECTED,
     SOURCE_LABEL_CONFIRMED,
@@ -269,6 +270,16 @@ class TestTempoSource:
         # what was actually measured survives, so a caller can report it
         assert abs(result.detected - 120.0) < 6.0
         assert result.detected != result.tempo
+
+    def test_harmonic_tolerance_is_not_duplicated(self):
+        """Used to be spelled 0.08 twice, once in this module and once in
+        search.py, with nothing to stop the two drifting apart. Both must now
+        import the one definition in _query."""
+        import digr.tools.search as search
+        from digr.tools._query import BPM_LABEL_TOLERANCE as canonical
+
+        assert _audio_analysis.BPM_LABEL_TOLERANCE == canonical
+        assert search.BPM_LABEL_TOLERANCE == canonical
 
     def test_hint_that_detection_contradicts_is_flagged_as_unconfirmed(self):
         y = _make_click_track(bpm=120.0, sr=22050, duration=10.0)
