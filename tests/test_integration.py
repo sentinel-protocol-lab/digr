@@ -226,3 +226,50 @@ class TestAnalyzeSampleReportsNativeMetadata:
         assert "Sample Rate: 48000 Hz" in result # true rate, not 22050
         assert "22050 Hz" not in result          # the old, wrong value
         assert "Duration: 32.0 seconds" in result # true length, not capped at 30
+
+
+class TestAnalyzeSampleOneShotGuardIsTempoAware:
+    """A 1-bar loop is under three seconds at any tempo above 80 BPM, so a flat
+    "too short" cutoff refuses to report a tempo for essentially every one-bar
+    loop in existence -- while detection handles them perfectly well. The guard
+    has to ask how long a bar is at the tempo in hand, not compare against a
+    fixed number of seconds."""
+
+    @staticmethod
+    def _one_bar_loop(bpm: float, sr: int = 22050):
+        """One bar of 4/4 with enough transient detail to detect a tempo from."""
+        import numpy as np
+
+        n = int(sr * 240.0 / bpm)
+        y = np.zeros(n, dtype=np.float32)
+        step = n / 16
+        for s in range(16):
+            i = int(s * step)
+            freq, amp = (55, 0.95) if s % 8 == 0 else (210, 0.8) if s % 8 == 4 else (9000, 0.2)
+            length = int(0.04 * sr)
+            if i + length > n:
+                continue
+            env = np.exp(-np.linspace(0, 12, length))
+            tone = np.sin(2 * np.pi * freq * np.arange(length) / sr)
+            y[i : i + length] += (tone * env * amp).astype(np.float32)
+        return y
+
+    @pytest.mark.asyncio
+    async def test_one_bar_loop_at_a_fast_tempo_still_reports_a_bpm(
+        self, tmp_path, pro_license
+    ):
+        import soundfile as sf
+
+        from digr.tools.analyze import analyze_sample
+
+        # 1 bar at 174 BPM = 1.38s. No number in the NAME, so this goes through
+        # detection rather than the filename-label path.
+        wav = tmp_path / "one_bar_loop.wav"
+        sf.write(str(wav), self._one_bar_loop(174.0), 22050)
+
+        result = await analyze_sample(str(wav))
+
+        assert "sample too short" not in result
+        assert "BPM: N/A" not in result
+        bpm_line = next(line for line in result.splitlines() if line.startswith("BPM:"))
+        assert any(ch.isdigit() for ch in bpm_line)

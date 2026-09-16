@@ -4,7 +4,12 @@ from pathlib import Path
 
 import mido
 
-from ._query import SOURCE_DETECTED, SOURCE_LABEL_CONFIRMED, SOURCE_LABEL_HARMONIC
+from ._query import (
+    SOURCE_DETECTED,
+    SOURCE_LABEL_CONFIRMED,
+    SOURCE_LABEL_HARMONIC,
+    is_one_shot_duration,
+)
 from ._shared import audio_warming_message, identify_library, require_pro
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -91,7 +96,7 @@ async def analyze_sample(filepath: str) -> str:
         library_name = identify_library(file_path)
 
         result = f"Analysis of: {file_path.name}\n\n"
-        if duration < 3.0 and tempo > 0.0:
+        if is_one_shot_duration(duration, tempo) and tempo > 0.0:
             result += "BPM: N/A (sample too short for reliable tempo detection)\n"
         elif tempo_result.source == SOURCE_LABEL_CONFIRMED and tempo > 0.0:
             # The number is the filename's, but detection measured the file
