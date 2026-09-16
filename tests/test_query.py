@@ -369,6 +369,16 @@ class TestExtractBpmFromFilename:
         assert extract_bpm_from_filename("kick_808.wav") is None
         assert extract_bpm_from_filename("") is None
 
+    def test_leading_number_floor_is_stricter_than_the_explicit_tag_floor(self):
+        """An explicit "bpm" token is unambiguous even at a rare tempo, so it
+        is trusted from BPM_MIN (40). A bare leading number with no token is
+        read only above the stricter leading-number floor (60) -- below that
+        it's far more likely a catalogue or track index. The two floors are
+        deliberately different constants and must not collapse into one."""
+        assert extract_bpm_from_filename("45bpm_Sub.wav") == 45.0
+        assert extract_bpm_from_filename("45-Sub.wav") is None
+        assert extract_bpm_from_filename("60-Sub.wav") == 60.0
+
 
 class TestExtractKeyFromFilename:
     """Exists so rename_with_metadata can tell whether a file already states

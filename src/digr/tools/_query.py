@@ -177,6 +177,22 @@ def weak_expansions(token: str) -> frozenset[str]:
 BPM_MIN = 40.0
 BPM_MAX = 300.0
 
+# How far a detected tempo may drift from a filename/folder label before it is
+# shown as a disagreement rather than a confirmation -- matches
+# detect_tempo_with_hint's own harmonic tolerance. Lives here, not in
+# _audio_analysis or search, because both need the SAME number: it used to be
+# spelled twice, once per module, with nothing to stop the two drifting apart.
+BPM_LABEL_TOLERANCE = 0.08
+
+# A leading bare number with no "bpm" token attached (extract_bpm_from_filename
+# Pattern 3, e.g. "120-GitterBreak") is read as a tempo only above this floor.
+# Deliberately stricter than BPM_MIN: an EXPLICIT "45bpm" is unambiguous even
+# though 45 is a rare tempo, but a bare leading "45" is far more often a
+# catalogue or track index than a tempo -- indices in that range are common,
+# genuine sub-60 tempos in this kind of library are not. Not the same question
+# BPM_MIN answers (is a stated value plausible at all), so not merged with it.
+_LEADING_NUMBER_BPM_MIN = 60.0
+
 # A loop is conventionally at least one whole 4/4 bar; below that fraction of
 # a bar there is no rhythm to autocorrelate against regardless of tempo, so
 # treating it as a one-shot is safe. Held under 1.0 rather than at it only to
@@ -280,11 +296,10 @@ def extract_bpm_from_filename(filename: str) -> float | None:
 
     # Pattern 3: leading number followed by separator then text
     # e.g. "120-GitterBreak", "140_HouseLoop", "170 DnB Roller"
-    # Only match if the number is in plausible BPM range (60-300)
     match = re.match(r'^(\d{2,3})[-_\s]', name)
     if match:
         bpm = float(match.group(1))
-        if 60 <= bpm <= 300:
+        if _LEADING_NUMBER_BPM_MIN <= bpm <= BPM_MAX:
             return bpm
 
     return None
