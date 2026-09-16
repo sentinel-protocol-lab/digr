@@ -13,6 +13,7 @@ from ._query import (
     SOURCE_LABEL_ONLY,
     BpmTarget,
     file_tokens,
+    is_one_shot_duration,
     parse_query,
 )
 from ._shared import (
@@ -33,29 +34,6 @@ TRUNCATION_NOTE = (
     "specific keyword, or check whether a drive is cold or on a slow network "
     "mount."
 )
-
-# A loop is conventionally at least one whole 4/4 bar; below that fraction of
-# a bar there is no rhythm to autocorrelate against regardless of tempo, so
-# treating it as a one-shot is safe. Held under 1.0 rather than at it only to
-# tolerate a file trimmed a little short of its nominal grid length.
-ONE_SHOT_BAR_FRACTION = 0.9
-
-
-def _is_one_shot_duration(duration: float, bpm: float) -> bool:
-    """Tempo-aware one-shot guard: is ``duration`` too short to be >= 1 bar
-    at ``bpm``?
-
-    Replaces a flat duration cutoff, which was blind to tempo: a whole 1-bar
-    loop at 174 BPM is 1.38s, well under any sensible flat threshold, so real
-    fast-tempo loops were being called one-shots purely because the guard
-    never looked at tempo. ``bpm <= 0`` -- no rhythm detected at all -- is
-    always a one-shot, matching the old ``tempo == 0.0`` special case.
-    """
-    if bpm <= 0:
-        return True
-    bar_seconds = 240.0 / bpm
-    return duration < bar_seconds * ONE_SHOT_BAR_FRACTION
-
 
 # How far a detected tempo may drift from a filename/folder label before it
 # is shown as a disagreement rather than a confirmation. Producers don't
@@ -144,7 +122,7 @@ def _format_bpm_line(
     handling) so this decision -- the actual tricky part -- can be tested
     directly with plain numbers, no audio decoding required.
     """
-    is_one_shot = _is_one_shot_duration(duration, tempo)
+    is_one_shot = is_one_shot_duration(duration, tempo)
     if is_one_shot:
         return (
             f"labelled {label:.0f} — one-shot, no tempo detected"
@@ -376,7 +354,7 @@ def _discover_unlabelled(
         # Rejected before spending any decode budget -- confidence cannot
         # do this job (a one-shot measures as the MOST confident thing in
         # the library), so duration is the only defence that works.
-        if _is_one_shot_duration(duration, target.high):
+        if is_one_shot_duration(duration, target.high):
             continue
         filename = Path(path).name
         try:

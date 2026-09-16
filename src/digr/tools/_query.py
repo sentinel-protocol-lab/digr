@@ -177,6 +177,32 @@ def weak_expansions(token: str) -> frozenset[str]:
 BPM_MIN = 40.0
 BPM_MAX = 300.0
 
+# A loop is conventionally at least one whole 4/4 bar; below that fraction of
+# a bar there is no rhythm to autocorrelate against regardless of tempo, so
+# treating it as a one-shot is safe. Held under 1.0 rather than at it only to
+# tolerate a file trimmed a little short of its nominal grid length.
+ONE_SHOT_BAR_FRACTION = 0.9
+
+
+def is_one_shot_duration(duration: float, bpm: float) -> bool:
+    """Is ``duration`` too short to be >= 1 bar at ``bpm``?
+
+    The guard has to be relative to tempo. One bar of 4/4 is under three
+    seconds at any tempo above 80 BPM, so a fixed few-second threshold would
+    refuse essentially every one-bar loop in existence, while detection
+    handles them perfectly well. ``bpm <= 0`` -- no rhythm detected at all --
+    is always a one-shot.
+
+    Lives here, beside the other tempo arithmetic, rather than in either
+    caller: search and analyze both need it, and one rule spelled separately
+    in two modules drifts apart silently. Pure stdlib, so the free path can
+    import it.
+    """
+    if bpm <= 0:
+        return True
+    bar_seconds = 240.0 / bpm
+    return duration < bar_seconds * ONE_SHOT_BAR_FRACTION
+
 # Where a reported tempo came from. Defined here, beside the filename BPM
 # parser, rather than in the audio engine: the engine is an optional extra
 # that the free path must never import, but the code that DISPLAYS a tempo
