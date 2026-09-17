@@ -118,6 +118,30 @@ def macos_junk_library(tmp_path_factory):
 
 
 @pytest.fixture
+def ableton_pack_library(tmp_path_factory):
+    """A library with a real sample alongside an Ableton Pack's own preview clips.
+
+    Mirrors an installed Ableton Pack: real content in its normal folders, plus
+    the pack's ``Ableton Folder Info`` housekeeping directory, whose ``Previews``
+    tree holds Live's own preset-preview clips -- never something a producer
+    would want returned as a sample. The subfolder names under ``Previews`` vary
+    per pack (Drums, Sounds, MIDI Clips, ...), so the fixture uses one of many
+    real ones to make clear the filter can't key on that.
+    """
+    lib = tmp_path_factory.mktemp("ableton_pack_library")
+    kits = lib / "Clubber Kit" / "Samples"
+    kits.mkdir(parents=True)
+    (kits / "Clap 01.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+
+    previews = lib / "Clubber Kit" / "Ableton Folder Info" / "Previews" / "Drums"
+    previews.mkdir(parents=True)
+    (previews / "Clubber Kit.adg.ogg").write_bytes(b"OggS" + b"\x00" * 40)
+
+    set_libraries({"Ableton Pack Library": lib})
+    return lib
+
+
+@pytest.fixture
 def vocabulary_library(tmp_path_factory):
     """A library named the way real packs are named.
 

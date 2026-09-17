@@ -301,6 +301,16 @@ async def test_search_excludes_macos_junk(macos_junk_library):
     assert "Bass Loop 99.wav" not in result
 
 
+@pytest.mark.asyncio
+async def test_search_excludes_ableton_pack_previews(ableton_pack_library):
+    """An Ableton Pack's own preset-preview clips must never surface as samples."""
+    result = await search_samples("clubber kit", max_results=50)
+    # The real sample still comes through.
+    assert "Clap 01.wav" in result
+    # Live's own preview clip under the pack's housekeeping folder is filtered out.
+    assert "Clubber Kit.adg.ogg" not in result
+
+
 # ---------------------------------------------------------------------------
 # search_samples_by_bpm -- tempo-range filtering (Phase 2 #3a)
 # ---------------------------------------------------------------------------
