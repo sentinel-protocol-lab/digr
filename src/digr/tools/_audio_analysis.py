@@ -187,6 +187,25 @@ def _mel_filterbank(
 # Onset strength envelope
 # ---------------------------------------------------------------------------
 
+def _pad_for_stft(y: np.ndarray, n_fft: int) -> np.ndarray:
+    """Zero-pad ``y`` up to ``n_fft`` samples if it's shorter.
+
+    scipy clamps ``nperseg`` down to the signal length when the signal is
+    shorter than requested, which crashes outright (``noverlap`` stays at its
+    original, now-too-large value) -- and even if it didn't, shrinking
+    ``nperseg`` narrows scipy's output frequency axis below what the mel and
+    chroma filterbanks below are built for, corrupting the result instead of
+    just crashing it. A one-shot transient a few hundredths of a second long
+    is ordinary sample-library content, not a malformed input, so padding
+    keeps the window size -- and therefore frequency resolution -- fixed
+    regardless of input length; a very short file just yields one quiet,
+    low-detail analysis frame instead.
+    """
+    if len(y) >= n_fft:
+        return y
+    return np.pad(y, (0, n_fft - len(y)))
+
+
 def _onset_strength(
     y: np.ndarray,
     sr: int = 22050,
@@ -201,6 +220,7 @@ def _onset_strength(
     ``onset.onset_strength`` default behaviour.
     """
     # Compute STFT via scipy
+    y = _pad_for_stft(y, n_fft)
     _, _, Zxx = scipy_stft(
         y,
         fs=sr,
@@ -523,6 +543,7 @@ def compute_chroma(
     Returns shape (12, T) matching ``librosa.feature.chroma_cqt``.
     """
     # Compute STFT power spectrum
+    y = _pad_for_stft(y, n_fft)
     f, _, Zxx = scipy_stft(
         y,
         fs=sr,
