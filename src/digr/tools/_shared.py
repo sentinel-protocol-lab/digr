@@ -313,17 +313,27 @@ def require_pro(tool_name: str) -> str | None:
 
 
 def is_junk_path(file_path: Path) -> bool:
-    """True for macOS metadata litter that only looks like a sample.
+    """True for metadata litter that only looks like a sample.
 
     When audio is zipped or copied on a Mac and unpacked on another
     filesystem, two kinds of junk appear with audio-looking names:
     AppleDouble sidecar files (``._Track.wav``) and the ``__MACOSX``
     folder. They carry an audio extension but contain no audio, so they
     must never be searched, counted, analysed, or organised as samples.
+
+    A third kind comes from Ableton itself: every installed Pack has an
+    ``Ableton Folder Info`` housekeeping folder (Properties.cfg,
+    Metadata.cfg, Sample Reference.als, and a ``Previews`` tree of Live's
+    own preset-preview clips). The subfolder names under it vary per pack,
+    so the folder name itself is the only reliable anchor -- everything
+    beneath it is pack housekeeping, never something a producer wants
+    returned as a sample.
     """
     if file_path.name.startswith("._"):
         return True
-    return "__MACOSX" in file_path.parts
+    if "__MACOSX" in file_path.parts:
+        return True
+    return "Ableton Folder Info" in file_path.parts
 
 
 @dataclass
