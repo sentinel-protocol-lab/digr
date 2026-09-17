@@ -9,6 +9,8 @@ from ._query import (
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_RELATIVE,
+    UNREADABLE_AIFF_CODEC_REASON,
+    is_ableton_compressed_aiff,
     is_one_shot_duration,
 )
 from ._shared import audio_warming_message, identify_library, require_pro
@@ -69,6 +71,13 @@ async def analyze_sample(filepath: str) -> str:
             f"ERROR: File not found at {filepath}\n"
             f"Hint: Check if the drive is mounted with list_libraries. "
             f"Or search for the filename with search_samples(keyword=\"{file_path.stem}\")."
+        )
+
+    if is_ableton_compressed_aiff(str(file_path)):
+        return (
+            f"ERROR: Cannot analyze {file_path.name} — it uses "
+            f"{UNREADABLE_AIFF_CODEC_REASON}, which Digr cannot decode.\n"
+            f"Path: {filepath}\n"
         )
 
     try:

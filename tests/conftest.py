@@ -1,5 +1,7 @@
 """Shared test fixtures."""
 
+from pathlib import Path
+
 import pytest
 
 from digr.config import Config
@@ -252,6 +254,34 @@ def singular_filenames_library(tmp_path_factory):
 
     set_libraries({"Singular Library": lib})
     return lib
+
+
+@pytest.fixture
+def write_ableton_aifc():
+    """Factory: writes a minimal, valid AIFF-C file with a given compression
+    type -- by default Ableton's own 'able' codec, which libsndfile (and
+    CoreAudio, and ffmpeg) cannot open at all. This is what every compressed
+    AIFF inside a real Ableton Pack looks like on disk; used to test that
+    Digr recognises and skips this codec instead of attempting a decode that
+    can only ever fail.
+    """
+
+    def _write(path, compression: bytes = b"able", extra_chunks: bytes = b""):
+        comm_data = (
+            b"\x00\x01"  # numChannels = 1
+            + (1000).to_bytes(4, "big")  # numSampleFrames
+            + b"\x00\x10"  # sampleSize = 16
+            + b"\x40\x0e\xac\x44\x00\x00\x00\x00\x00\x00"  # sampleRate (80-bit float)
+            + compression  # 4-byte compressionType FourCC
+            + b"\x00"  # compressionName: zero-length Pascal string
+        )
+        comm_chunk = b"COMM" + len(comm_data).to_bytes(4, "big") + comm_data
+        body = b"AIFC" + extra_chunks + comm_chunk
+        data = b"FORM" + len(body).to_bytes(4, "big") + body
+        Path(path).write_bytes(data)
+        return Path(path)
+
+    return _write
 
 
 @pytest.fixture

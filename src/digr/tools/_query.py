@@ -259,6 +259,67 @@ class BpmTarget(NamedTuple):
         return self.low <= value <= self.high
 
 
+# ---------------------------------------------------------------------------
+# Unreadable codec detection (pure header read, no audio decode)
+# ---------------------------------------------------------------------------
+
+# Ableton's own closed AIFF-C compression, used throughout its factory Packs.
+# libsndfile, macOS CoreAudio and ffmpeg all fail to open a file in this
+# codec outright -- not a missing feature to add, a format nothing but
+# Ableton itself can decode. Detecting it from the header costs a handful of
+# bytes; attempting to decode it costs a doomed library call every time.
+_AIFC_ABLE_COMPRESSION = b"able"
+
+_AIFF_EXTENSIONS = {".aif", ".aiff", ".afc", ".aifc"}
+
+# Named once so every caller (search's decode paths, analyze_sample,
+# rename_with_metadata) describes the same file the same way, rather than
+# three independently-worded guesses drifting apart.
+UNREADABLE_AIFF_CODEC_REASON = "Ableton's proprietary compressed AIFF format"
+
+
+def is_ableton_compressed_aiff(path: str) -> bool:
+    """Is ``path`` an AIFF-C file using Ableton's own 'able' compression?
+
+    Reads only the FORM header and the COMM chunk via direct seeks -- no
+    full read and no soundfile/numpy/scipy import, so the free search path
+    could use this too if it ever needed to. Any failure to parse (wrong
+    extension, not AIFF-C, truncated/malformed file, missing file, no COMM
+    chunk within a bounded scan) returns False rather than raising: this
+    exists to recognise ONE specific undecodable format cheaply, not to
+    validate AIFF files in general, and a file it can't make sense of is one
+    the normal decode path is left to handle on its own.
+    """
+    if Path(path).suffix.lower() not in _AIFF_EXTENSIONS:
+        return False
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+            if len(header) < 12 or header[0:4] != b"FORM" or header[8:12] != b"AIFC":
+                return False
+            # Walk chunks looking for COMM. Bounded so a malformed file with
+            # no COMM chunk can't spin the loop forever.
+            for _ in range(64):
+                chunk_header = f.read(8)
+                if len(chunk_header) < 8:
+                    return False
+                chunk_id = chunk_header[0:4]
+                chunk_size = int.from_bytes(chunk_header[4:8], "big")
+                if chunk_id == b"COMM":
+                    # AIFF-C COMM layout: numChannels(2) + numSampleFrames(4)
+                    # + sampleSize(2) + sampleRate(10) = 18 bytes, then the
+                    # 4-byte compressionType FourCC this function wants.
+                    comm = f.read(chunk_size)
+                    if len(comm) < 22:
+                        return False
+                    return comm[18:22] == _AIFC_ABLE_COMPRESSION
+                # Chunk data is padded to an even byte count in the file.
+                f.seek(chunk_size + (chunk_size & 1), 1)
+            return False
+    except OSError:
+        return False
+
+
 # Digit guards rather than \b: "_174_bpm" has no word boundary before the 1,
 # because "_" counts as a word character.
 _RANGE_RE = re.compile(r"(?<!\d)(\d{2,3})\s*(?:[-–—]|to)\s*(\d{2,3})(?!\d)")

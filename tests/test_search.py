@@ -391,6 +391,81 @@ async def test_bpm_range_one_shot_real_audio(tmp_path, pro_license):
     assert "labelled 172 — one-shot, no tempo detected" in result
 
 
+@pytest.mark.asyncio
+async def test_bpm_range_labelled_ableton_aiff_names_the_reason(
+    tmp_path, pro_license, write_ableton_aifc
+):
+    """A filename-labelled match in Ableton's undecodable codec is still a
+    real match -- shown with its label and a plain reason detection can't
+    confirm it, never the raw libsndfile error string."""
+    from digr.tools._shared import set_libraries
+
+    lib = tmp_path / "AbletonPack"
+    lib.mkdir()
+    write_ableton_aifc(lib / "loop_172.aif")
+    set_libraries({"Ableton Pack": tmp_path})
+
+    result = await search_samples_by_bpm("loop", min_bpm=170, max_bpm=178)
+
+    assert "loop_172.aif" in result
+    assert "172" in result
+    assert "Ableton" in result
+    assert "unimplemented format" not in result
+    assert "Unable to detect" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_range_unlabelled_ableton_aiff_is_never_a_candidate(
+    tmp_path, pro_license, write_ableton_aifc
+):
+    """An unlabelled file in an undecodable codec can never produce a
+    detection, so it must not appear as a checked-but-failed candidate --
+    the only genuinely matching file is unlabelled and undecodable, so there
+    is nothing to confirm at all."""
+    from digr.tools._shared import set_libraries
+
+    lib = tmp_path / "AbletonPack"
+    lib.mkdir()
+    write_ableton_aifc(lib / "mystery_loop.aif")
+    set_libraries({"Ableton Pack": tmp_path})
+
+    result = await search_samples_by_bpm("mystery", min_bpm=170, max_bpm=178)
+
+    assert "No samples found" in result
+    assert "unimplemented format" not in result
+
+
+@pytest.mark.asyncio
+async def test_bpm_no_range_ableton_aiff_names_the_reason(
+    mock_libraries, pro_license, write_ableton_aifc, sample_dir
+):
+    """Same fix on the no-range path: every match is decoded unconditionally
+    there, so an undecodable file must be skipped just as cleanly."""
+    write_ableton_aifc(sample_dir / "Drums" / "Kicks" / "kick_ableton.aif")
+
+    result = await search_samples_by_bpm("kick_ableton", max_results=10)
+
+    assert "kick_ableton.aif" in result
+    assert "Ableton" in result
+    assert "unimplemented format" not in result
+    assert "Unable to detect" not in result
+
+
+def test_confirm_labelled_skips_decode_for_an_undecodable_codec(
+    tmp_path, write_ableton_aifc
+):
+    """Unit-level: passing audio=None proves the codec is never handed to the
+    decoder at all -- if the check did not short-circuit, this would crash."""
+    from digr.tools.search import _confirm_labelled
+
+    path = write_ableton_aifc(tmp_path / "loop_172.aif")
+    row = _confirm_labelled(None, str(path), "Lib", 172.0)
+
+    assert "172" in row.bpm_line
+    assert "Ableton" in row.bpm_line
+    assert "unimplemented format" not in row.bpm_line
+
+
 class TestFormatBpmLine:
     """The one-shot-honesty / labelled-primary decision, in isolation --
     no audio decoding needed since this is pure display logic."""
