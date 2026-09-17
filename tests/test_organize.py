@@ -246,6 +246,25 @@ async def test_rename_still_appends_a_key_to_an_unlabelled_file(pro_license, tmp
 
 
 @pytest.mark.asyncio
+async def test_rename_names_the_codec_instead_of_leaking_a_decode_error(
+    pro_license, tmp_path, write_ableton_aifc
+):
+    """A file in Ableton's undecodable codec must never reach load_audio --
+    the old behaviour leaked the raw libsndfile string into the preview as
+    'ANALYSIS ERROR: ...File contains data in an unimplemented format.'."""
+    path = write_ableton_aifc(tmp_path / "loop.aif")
+
+    preview = await rename_with_metadata(
+        str(path), include_bpm=True, include_key=True, confirm=False
+    )
+
+    assert "Ableton" in preview
+    assert "ANALYSIS ERROR" not in preview
+    assert "unimplemented format" not in preview
+    assert "(SKIPPED)" in preview  # nothing to append, so no rename
+
+
+@pytest.mark.asyncio
 async def test_rename_metadata_flags_are_both_off_by_default(pro_license, tmp_path):
     """Both flags write a permanent change on the strength of an estimate, so
     neither may happen unless asked for -- key detection measures 29.6% exact

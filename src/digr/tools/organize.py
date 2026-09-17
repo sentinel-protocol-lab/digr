@@ -5,8 +5,10 @@ from typing import Union
 
 from ._query import (
     SOURCE_DETECTED,
+    UNREADABLE_AIFF_CODEC_REASON,
     extract_bpm_from_filename,
     file_tokens,
+    is_ableton_compressed_aiff,
     match_query,
     parse_query,
 )
@@ -308,7 +310,12 @@ async def rename_with_metadata(
             already: list[str] = []
             stem = src.stem
 
-            if needs_audio:
+            if needs_audio and is_ableton_compressed_aiff(str(src)):
+                # Never worth a decode attempt -- it can only ever fail --
+                # so BPM/key are simply left off rather than raising the raw
+                # decode error into the preview.
+                already.append(f"BPM/key not available — {UNREADABLE_AIFF_CODEC_REASON}")
+            elif needs_audio:
                 y, sr = audio_engine.load_audio(str(src), duration=30)
 
                 if include_bpm:

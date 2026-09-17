@@ -12,6 +12,7 @@ from digr.tools._query import (
     extract_key_from_filename,
     extract_key_label_from_filename,
     file_tokens,
+    is_ableton_compressed_aiff,
     match_query,
     parse_query,
     prefilter_hits,
@@ -665,3 +666,75 @@ class TestPrefilter:
         spec = with_bpm_filter(parse_query(""), BpmTarget(170.0, 178.0))
         assert prefilter_probes(spec) == ()
         assert prefilter_hits(prefilter_probes(spec), "anything") == 0
+
+
+class TestAbletonCompressedAiff:
+    """Header-only detection of Ableton's undecodable 'able' AIFF-C codec --
+    pure stdlib, so the free search path could use it without pulling in
+    soundfile/numpy/scipy."""
+
+    def test_detects_the_able_codec(self, tmp_path, write_ableton_aifc):
+        path = write_ableton_aifc(tmp_path / "loop.aif")
+        assert is_ableton_compressed_aiff(str(path)) is True
+
+    def test_a_decodable_aifc_codec_is_not_flagged(self, tmp_path, write_ableton_aifc):
+        # fl32 is a real, libsndfile-readable AIFC codec -- the check must
+        # name the specific undecodable format, not "any compressed AIFC".
+        path = write_ableton_aifc(tmp_path / "loop.aif", compression=b"fl32")
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_plain_pcm_aiff_is_not_flagged(self, tmp_path):
+        # A plain AIFF (not AIFC) has no compressionType field at all -- the
+        # form type itself already says "not compressed".
+        path = tmp_path / "loop.aif"
+        path.write_bytes(b"FORM" + (4).to_bytes(4, "big") + b"AIFF")
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_non_aiff_file_is_not_flagged(self, tmp_path):
+        path = tmp_path / "loop.wav"
+        path.write_bytes(b"RIFF" + b"\x00" * 40)
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_wrong_extension_is_never_opened(self, tmp_path):
+        # Same bytes as a real able-codec file, but a .wav extension -- the
+        # extension gate must reject it without reading the header at all.
+        path = tmp_path / "not_actually_aiff.wav"
+        comm_data = b"\x00\x01" + (1).to_bytes(4, "big") + b"\x00\x10" + b"\x00" * 10 + b"able\x00"
+        body = b"AIFC" + b"COMM" + len(comm_data).to_bytes(4, "big") + comm_data
+        path.write_bytes(b"FORM" + len(body).to_bytes(4, "big") + body)
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_a_chunk_before_comm_is_skipped(self, tmp_path, write_ableton_aifc):
+        # Real Ableton exports carry an FVER (format version) chunk before
+        # COMM -- the walk must not assume COMM is the first chunk.
+        fver = b"FVER" + (4).to_bytes(4, "big") + b"\xa2\x80\x51\x40"
+        path = write_ableton_aifc(tmp_path / "loop.aif", extra_chunks=fver)
+        assert is_ableton_compressed_aiff(str(path)) is True
+
+    def test_an_odd_sized_chunk_before_comm_is_padded_past(
+        self, tmp_path, write_ableton_aifc
+    ):
+        # AIFF pads a chunk's data to an even byte count ON DISK without that
+        # pad byte counting toward the chunk's own size field. An odd-sized
+        # preceding chunk (declared size 3, one real pad byte on disk)
+        # pins that the walk skips the pad too -- skipping only chunk_size
+        # bytes would land one byte short and read a bogus chunk id, missing
+        # a real COMM chunk that is genuinely there.
+        odd_chunk = b"ODDX" + (3).to_bytes(4, "big") + b"\x01\x02\x03" + b"\x00"
+        path = write_ableton_aifc(tmp_path / "loop.aif", extra_chunks=odd_chunk)
+        assert is_ableton_compressed_aiff(str(path)) is True
+
+    def test_truncated_file_does_not_crash(self, tmp_path):
+        path = tmp_path / "loop.aif"
+        path.write_bytes(b"FORM")
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_no_comm_chunk_does_not_crash(self, tmp_path):
+        path = tmp_path / "loop.aif"
+        other = b"XYZW" + (4).to_bytes(4, "big") + b"\x00\x00\x00\x00"
+        body = b"AIFC" + other
+        path.write_bytes(b"FORM" + len(body).to_bytes(4, "big") + body)
+        assert is_ableton_compressed_aiff(str(path)) is False
+
+    def test_missing_file_does_not_crash(self, tmp_path):
+        assert is_ableton_compressed_aiff(str(tmp_path / "missing.aif")) is False

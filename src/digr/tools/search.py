@@ -12,8 +12,10 @@ from ._query import (
     SOURCE_LABEL_CONFIRMED,
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
+    UNREADABLE_AIFF_CODEC_REASON,
     BpmTarget,
     file_tokens,
+    is_ableton_compressed_aiff,
     is_one_shot_duration,
     parse_query,
 )
@@ -301,11 +303,17 @@ def _confirm_labelled(
     """Stage 2 (#3a): detect a labelled-in-range match only to confirm it."""
     filename = Path(path).name
     folder = Path(path).parent.name
-    try:
-        tempo, duration, source, detected = _decode_and_detect(audio, path, filename)
-        bpm_line = _format_bpm_line(tempo, duration, label, source, detected)
-    except Exception as e:
-        bpm_line = f"Unable to detect ({e})"
+    if is_ableton_compressed_aiff(path):
+        # Never worth a decode attempt -- it can only ever fail -- but the
+        # filename label is still real information, so the match stays, with
+        # an explanation instead of a doomed decode.
+        bpm_line = f"{label:.0f} (labelled) — {UNREADABLE_AIFF_CODEC_REASON}, can't confirm by detection"
+    else:
+        try:
+            tempo, duration, source, detected = _decode_and_detect(audio, path, filename)
+            bpm_line = _format_bpm_line(tempo, duration, label, source, detected)
+        except Exception as e:
+            bpm_line = f"Unable to detect ({e})"
     return _ResultRow(path, library_name, filename, folder, bpm_line)
 
 
@@ -475,22 +483,16 @@ async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
         filename = Path(path).name
         folder = Path(path).parent.name
 
-        try:
-            tempo, duration, source, _ = _decode_and_detect(audio, path, filename)
-            bpm_line = _format_bpm_line(tempo, duration, None, source)
+        if is_ableton_compressed_aiff(path):
+            bpm_line = f"{UNREADABLE_AIFF_CODEC_REASON} — can't detect BPM"
+        else:
+            try:
+                tempo, duration, source, _ = _decode_and_detect(audio, path, filename)
+                bpm_line = _format_bpm_line(tempo, duration, None, source)
+            except Exception as e:
+                bpm_line = f"Unable to detect ({e})"
 
-            result += f"{i}. {filename}\n"
-            result += f"   BPM: {bpm_line}\n"
-            result += f"   Library: {library_name}\n"
-            result += f"   Folder: {folder}\n"
-            result += f"   Path: {path}\n\n"
-
-        except Exception as e:
-            result += f"{i}. {filename}\n"
-            result += f"   BPM: Unable to detect ({e})\n"
-            result += f"   Library: {library_name}\n"
-            result += f"   Folder: {folder}\n"
-            result += f"   Path: {path}\n\n"
+        result += _render_row(i, _ResultRow(path, library_name, filename, folder, bpm_line))
 
     if outcome.deadline_reached:
         result += f"{TRUNCATION_NOTE}\n\n"
@@ -532,7 +534,11 @@ async def _search_by_bpm_ranged(
         label = _label_bpm(path, library_name, target)
         if label is not None:
             labelled_pool.append((path, library_name, label))
-        else:
+        elif not is_ableton_compressed_aiff(path):
+            # An unlabelled file in an undecodable codec can never produce a
+            # detected tempo -- it must not enter the candidate pool at all,
+            # so it never costs a header read, a decode-budget slot, or a
+            # spot in "checked N of M candidates".
             unlabelled_pool.append((path, library_name))
 
     labelled_rows = [
