@@ -12,6 +12,7 @@ from digr.tools._audio_analysis import (
     SOURCE_LABEL_HARMONIC,
     SOURCE_LABEL_ONLY,
     SOURCE_LABEL_RELATIVE,
+    _onset_strength,
     _tempo_from_onset_env,
     compute_chroma,
     detect_key_with_hint,
@@ -199,6 +200,66 @@ class TestComputeChroma:
         y = _make_sine(440, sr=22050, duration=1.0)
         chroma = compute_chroma(y, sr=22050)
         assert chroma.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# STFT on very short audio: a signal below the window size used to crash
+# outright, on both the chroma and onset-strength paths.
+# ---------------------------------------------------------------------------
+
+class TestShortAudioStft:
+    def test_compute_chroma_below_crash_threshold(self):
+        """A ~0.1s signal (below the old ~0.16s crash threshold) doesn't raise."""
+        y = _make_sine(440, sr=22050, duration=0.1)
+        chroma = compute_chroma(y, sr=22050)
+        assert chroma.shape[0] == 12
+        assert chroma.shape[1] > 0
+
+    def test_compute_chroma_shorter_than_tempo_threshold(self):
+        """Shorter still (below the old ~0.07s onset-strength threshold too)."""
+        y = _make_sine(440, sr=22050, duration=0.03)
+        chroma = compute_chroma(y, sr=22050)
+        assert chroma.shape[0] == 12
+        assert chroma.shape[1] > 0
+
+    def test_compute_chroma_single_sample(self):
+        """One sample -- the shortest non-empty input possible."""
+        y = np.array([0.5], dtype=np.float32)
+        chroma = compute_chroma(y, sr=22050)
+        assert chroma.shape[0] == 12
+
+    def test_onset_strength_below_crash_threshold(self):
+        """The tempo path's narrower window has the same defect; same guard."""
+        y = _make_sine(440, sr=22050, duration=0.03)
+        onset_env = _onset_strength(y, sr=22050)
+        assert isinstance(onset_env, np.ndarray)
+
+    def test_short_signal_still_distinguishes_pitch(self):
+        """Padding for STFT validity doesn't wreck the filterbank's answer.
+
+        A short-but-decodable A4 sine should still peak at pitch class A --
+        proving the padding fix didn't corrupt the frequency axis the mel/
+        chroma filterbanks are built for (an earlier, discarded version of
+        this fix shrank the STFT window instead, which passed silently for
+        this same input by raising a shape-mismatch error deeper in the
+        filterbank matmul).
+        """
+        y = _make_sine(440, sr=22050, duration=0.1)
+        chroma = compute_chroma(y, sr=22050)
+        profile = np.sum(chroma, axis=1)
+        assert int(np.argmax(profile)) == 9  # A
+
+    def test_detect_key_with_hint_does_not_crash_on_one_shot(self):
+        """The real customer path: analyze_sample's key detection on a
+        one-shot transient too short for a full analysis window."""
+        y = _make_click_track(bpm=120.0, sr=22050, duration=0.1)
+        result = detect_key_with_hint(y, sr=22050, filename="click.wav")
+        assert result.name  # returns a value, doesn't raise
+
+    def test_detect_tempo_with_hint_does_not_crash_on_one_shot(self):
+        y = _make_click_track(bpm=120.0, sr=22050, duration=0.1)
+        result = detect_tempo_with_hint(y, sr=22050, filename="click.wav")
+        assert isinstance(result.tempo, float)
 
 
 # ---------------------------------------------------------------------------
