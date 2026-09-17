@@ -1,10 +1,10 @@
-"""FastMCP server definition with all tool registrations."""
+"""MCP server definition with all tool registrations."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import anyio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .config import Config
 from .tools._shared import set_libraries, set_license_key, warm_audio_stack
@@ -35,7 +35,7 @@ _HANDSHAKE_HEAD_START_SECONDS = 0.5
 
 
 @asynccontextmanager
-async def _audio_warmup_lifespan(_app: FastMCP) -> AsyncIterator[dict]:
+async def _audio_warmup_lifespan(_app: MCPServer) -> AsyncIterator[dict]:
     """Warm the audio stack AFTER the transport starts, not before it.
 
     Entering this context manager must NOT wait for the import: it schedules
@@ -70,8 +70,8 @@ async def _warm_up_after_handshake() -> None:
     warm_audio_stack()
 
 
-def create_server(config: Config | None = None) -> FastMCP:
-    """Create and configure the FastMCP server with all tools.
+def create_server(config: Config | None = None) -> MCPServer:
+    """Create and configure the MCP server with all tools.
 
     Args:
         config: Server configuration with library paths. If None, uses empty config.
@@ -83,7 +83,7 @@ def create_server(config: Config | None = None) -> FastMCP:
     set_libraries(config.libraries)
     set_license_key(config.license_key)
 
-    mcp = FastMCP(
+    mcp = MCPServer(
         "digr",
         lifespan=_audio_warmup_lifespan,
         instructions=(
