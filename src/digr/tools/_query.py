@@ -494,8 +494,8 @@ class QueryTerm:
     aliases: frozenset[str]
     weak_aliases: frozenset[str]
     bpm: "BpmTarget | None" = None
-    # Detection-discovery of unlabelled files (Phase 2 #3b). When True, a file
-    # with NO in-band tempo marker of its own (no bpm_hint, no in-band filename
+    # Detection-discovery of unlabelled files. When True, a file with NO
+    # in-band tempo marker of its own (no bpm_hint, no in-band filename
     # number) still satisfies this term -- as a CANDIDATE for the caller to run
     # detection on, not a confirmed match. Only ever set on the synthetic BPM
     # term search_samples_by_bpm builds; never on an ordinary word term.
@@ -533,8 +533,7 @@ def range_term(target: BpmTarget, allow_unlabelled: bool = False) -> QueryTerm:
 
     ``allow_unlabelled`` additionally admits a file with NO in-band tempo
     marker at all, as a detection candidate rather than a confirmed match --
-    see ``QueryTerm.allow_unlabelled`` and ``search_samples_by_bpm`` (Phase 2
-    #3b).
+    see ``QueryTerm.allow_unlabelled`` and ``search_samples_by_bpm``.
     """
     low, high = int(target.low), int(target.high)
     text = f"{low}-{high}" if target.is_range else f"{low}"
@@ -571,7 +570,7 @@ def with_bpm_filter(
     parsed an equal target, so "shaker 170-178" called with that same
     explicit range doesn't end up AND-ing two copies of it together.
 
-    With ``allow_unlabelled=True`` (Phase 2 #3b), a plain no-op is wrong: a
+    With ``allow_unlabelled=True``, a plain no-op is wrong: a
     typed range like "shaker 170-178" already produced a STRICT range term
     via ``parse_query``, and skipping would mean unlabelled discovery never
     fires on a typed range at all -- only on the explicit-param path. So this
@@ -700,9 +699,9 @@ class TokenBag:
     folder_stems: frozenset[str]
     numbers: frozenset[int]
     # Filename-only numbers, kept separate from ``numbers`` (folder ∪ name).
-    # Detection-discovery (Phase 2 #3b) must exclude a file from candidacy
-    # only on a marker the FILE ITSELF carries -- a folder like "Samples
-    # 192kHz" or "House 124" must not silently exclude every file inside it.
+    # Detection-discovery must exclude a file from candidacy only on a marker
+    # the FILE ITSELF carries -- a folder like "Samples 192kHz" or "House 124"
+    # must not silently exclude every file inside it.
     name_numbers: frozenset[int]
     bpm_hint: float | None
 
@@ -817,8 +816,8 @@ def _score_term(term: QueryTerm, bag: TokenBag) -> tuple[float | None, bool]:
             return SCORE_BPM, True
         if any(term.bpm.contains(n) for n in bag.numbers):
             return SCORE_BPM, False
-        # Detection-discovery candidate (Phase 2 #3b): the file carries NO
-        # in-band tempo marker of its own -- no bpm_hint, no in-band filename
+        # Detection-discovery candidate: the file carries NO in-band tempo
+        # marker of its own -- no bpm_hint, no in-band filename
         # number -- so it is neither confirmed in-range nor confirmed
         # out-of-range (a labelled-out-of-range file must fall through and
         # stay unmatched, trusting its own label). "In-band" is the engine's

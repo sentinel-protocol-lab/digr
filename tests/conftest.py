@@ -221,13 +221,12 @@ def symptom_c_library(tmp_path_factory):
 def partial_overflow_library(tmp_path_factory):
     """More near-misses than the old first-N partial pool cap would hold.
 
-    §Z-5 recorded that no fixture anywhere overflows a cap AND exercises the
-    partial path at the same time, which left the §Z-1.1 two-bar prefilter
-    resting on two tests written for something else. This is that fixture.
+    No fixture anywhere overflowed a cap AND exercised the partial path at
+    the same time, which left the two-bar prefilter resting on two tests
+    written for something else. This is that fixture.
 
-    Every file is in ONE directory, per §Z-1.8: split across folders, the
-    filesystem can hand over a convenient order and let a first-N cap look
-    correct by luck.
+    Every file is in ONE directory: split across folders, the filesystem can
+    hand over a convenient order and let a first-N cap look correct by luck.
     """
     lib = tmp_path_factory.mktemp("partial_overflow_library")
     folder = lib / "Breaks"
@@ -268,7 +267,7 @@ def singular_filenames_library(tmp_path_factory):
     """Real packs overwhelmingly name files with the SINGULAR instrument word
     ("kick.wav", not "kicks.wav"), dumped in a flat folder with no
     "Kicks"/"Snares"/"HiHats" path component to save a raw plural-substring
-    match. §V-7: this exact shape sent 54 of 63 real files to Other.
+    match. This exact shape used to send 54 of 63 real files to Other.
     """
     lib = tmp_path_factory.mktemp("singular_library")
     folder = lib / "Downloads"

@@ -26,7 +26,7 @@ from ._query import (
 # patterns: search makes ONE traversal and tests each filename against this
 # set, instead of one rglob pass per extension. The set is the shared
 # definition of "a file Digr can work with" -- browse.py still keeps its own
-# hardcoded copies and should be pointed here (digr-STATUS.md §Y-6).
+# hardcoded copies and should be pointed here.
 AUDIO_SUFFIXES = frozenset({".wav", ".aif", ".aiff", ".mp3", ".flac", ".ogg"})
 MIDI_SUFFIXES = frozenset({".mid", ".midi"})
 SAMPLE_SUFFIXES = AUDIO_SUFFIXES | MIDI_SUFFIXES
@@ -61,8 +61,8 @@ _license_status: tuple[bool, str | None] | None = None
 #   * on a BACKGROUND daemon thread -> a C-extension import there starves for the
 #     GIL against the idle asyncio/stdio loop and can stall for MINUTES (observed
 #     on Windows: a 56-minute idle stall that only finished once tool-call
-#     traffic woke the loop). This is the real cause of the "cold BPM hang" saga
-#     -- NOT antivirus; the same import is ~seconds on the main thread.
+#     traffic woke the loop) -- NOT antivirus; the same import is ~seconds on
+#     the main thread.
 #   * synchronously BEFORE the transport starts reading stdio -> a slow cold
 #     import (old/cold hardware) delays the `initialize` reply past the
 #     client's own connect-handshake timeout, and the client gives up before
@@ -376,7 +376,7 @@ class SearchOutcome:
 #
 # 60s is deliberately loose. A full ranked walk of a 351k-file library on a
 # warm USB SSD measured ~3.5s typical and ~8.2s for a query matching most of
-# the library -- and that drive is close to BEST case (digr-STATUS.md §V-9).
+# the library -- and that drive is close to BEST case.
 # The number that matters at the other end is Claude Desktop's 240s tool-call
 # timeout: this has to fire well before that, so a cold or network drive
 # degrades into a ranked partial answer instead of a dead client. Do NOT tune
@@ -492,8 +492,8 @@ def search_libraries(
     is opt-in and set ONLY by ``search_samples_by_bpm`` -- it folds a tempo
     range into matching as one more required term, via the same constructor a
     typed range uses (``_query.with_bpm_filter``), so the two paths can never
-    behave differently. ``allow_unlabelled`` (Phase 2 #3b) additionally admits
-    files with no tempo marker of their own as detection CANDIDATES, and is
+    behave differently. ``allow_unlabelled`` additionally admits files with
+    no tempo marker of their own as detection CANDIDATES, and is
     likewise set ONLY by ``search_samples_by_bpm``. The organise tools share
     this engine but COPY AND MOVE files, so neither opt-in flag may ever reach
     them -- quietly filtering or widening what they act on would touch files

@@ -254,7 +254,7 @@ class TestBpmFilter:
 
 
 # ---------------------------------------------------------------------------
-# Detection-discovery of unlabelled files (Phase 2 #3b)
+# Detection-discovery of unlabelled files
 # ---------------------------------------------------------------------------
 
 
@@ -270,15 +270,15 @@ def _match_ranged(
 
 
 class TestUnlabelledDiscovery:
-    """Phase 2 #3b: files with NO tempo marker of their own become detection
-    CANDIDATES, never confirmed matches, and only when opted in."""
+    """Files with NO tempo marker of their own become detection CANDIDATES,
+    never confirmed matches, and only when opted in."""
 
     def test_name_numbers_is_filename_only(self):
         """A folder like 'House 124' must not silently exclude every file
         inside it from candidacy -- only a marker the FILE ITSELF carries."""
         bag = file_tokens("/lib/House 124/shaker.wav", root=Path("/lib"))
-        assert 124 in bag.numbers          # still counts for #3a's inclusion
-        assert 124 not in bag.name_numbers  # must not drive #3b's exclusion
+        assert 124 in bag.numbers          # still counts for the labelled-path inclusion
+        assert 124 not in bag.name_numbers  # must not drive unlabelled-discovery exclusion
 
     def test_candidate_term_matches_a_no_number_file(self):
         result = _match_ranged(
@@ -287,7 +287,7 @@ class TestUnlabelledDiscovery:
         assert result.matched
 
     def test_candidate_term_does_not_match_without_opting_in(self):
-        """The default (#3a-only) behaviour: an unlabelled file must not
+        """The default (labelled-only) behaviour: an unlabelled file must not
         surface as a match at all."""
         result = _match_ranged(
             "/lib/amen_chop.wav", BpmTarget(170.0, 178.0), allow_unlabelled=False
@@ -341,7 +341,7 @@ class TestUnlabelledDiscovery:
         assert term.allow_unlabelled is True
 
     def test_with_bpm_filter_default_is_still_a_no_op_on_duplicate(self):
-        """Existing #3a behaviour, unchanged: without allow_unlabelled, a
+        """Existing labelled-path behaviour, unchanged: without allow_unlabelled, a
         duplicate typed range is still a no-op, not a replacement."""
         spec = with_bpm_filter(parse_query("shaker 170-178"), BpmTarget(170.0, 178.0))
         assert _texts(spec) == ["shaker", "170-178"]

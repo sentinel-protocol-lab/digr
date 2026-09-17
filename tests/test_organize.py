@@ -99,7 +99,7 @@ async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
 async def test_sort_samples_routes_singular_filenames_by_category(
     singular_filenames_library, pro_license, tmp_path
 ):
-    """§V-7: the old check only matched a category name ("kicks") as a raw
+    """The old check only matched a category name ("kicks") as a raw
     substring of the full path, so it never found "kicks" inside a real,
     singularly-named file like "kick.wav" -- the overwhelmingly common
     convention -- and every one of these fell through to Other. Routing
