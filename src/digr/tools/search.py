@@ -42,14 +42,15 @@ TRUNCATION_NOTE = (
 # detect_tempo_with_hint's own harmonic tolerance) is also used as the
 # octave-tie-break tolerance for unlabelled detection, below.
 
-# --- Detection-discovery of unlabelled files (Phase 2 #3b) ---
+# --- Detection-discovery of unlabelled files ---
 #
 # Bounded two ways: a file-count budget (the deterministic, testable
 # behaviour) and a wall-clock deadline (a guard against a cold external
 # drive approaching Claude's 240s tool-call timeout -- decode cost measured
 # locally at ~12ms/file is not a safe basis for the budget on its own, since
 # real libraries live on external drives where I/O dominates by orders of
-# magnitude). Provisional; calibrate against real drives (digr-STATUS.md).
+# magnitude). Calibrated against real drives: the directory walk dominates
+# cost, not these constants, so both are kept generous rather than tuned tight.
 DETECTION_BUDGET_FILES = 40
 DETECTION_DEADLINE_SECONDS = 25.0
 
@@ -170,8 +171,8 @@ def _bar_grid_fits(
 
     Loops are almost always a whole number of bars, and duration is readable
     from the file HEADER with no decode -- so this orders the unlabelled
-    detection queue before any expensive work happens (Phase 2 #3b). It is
-    informative only when fewer than one whole bar-count fits inside the
+    detection queue before any expensive work happens. It is informative
+    only when fewer than one whole bar-count fits inside the
     range (measured: ~14% of random durations admit a fit at an 8-BPM-wide
     range under 8s, vs ~96% over 20s, where the test says nothing) -- above
     that threshold it is skipped rather than pretending. NEVER a hard gate: a
@@ -300,7 +301,7 @@ def _render_row(index: int, row: _ResultRow) -> str:
 def _confirm_labelled(
     audio, path: str, library_name: str, label: float
 ) -> _ResultRow:
-    """Stage 2 (#3a): detect a labelled-in-range match only to confirm it."""
+    """Detect a labelled-in-range match only to confirm it."""
     filename = Path(path).name
     folder = Path(path).parent.name
     if is_ableton_compressed_aiff(path):
@@ -320,8 +321,8 @@ def _confirm_labelled(
 def _discover_unlabelled(
     audio, candidates: list[tuple[str, str]], target: BpmTarget
 ) -> tuple[list[_ResultRow], int]:
-    """Stages 4-6 (#3b): order by bar-grid fit (header only, no decode), then
-    decode within budget, admitting an octave-aware in-range reading.
+    """Order unlabelled candidates by bar-grid fit (header only, no decode),
+    then decode within budget, admitting an octave-aware in-range reading.
 
     Returns (admitted rows, considered_count). ``considered_count`` is how
     many of ``candidates`` were actually looked at -- decoded OR rejected via
@@ -464,7 +465,7 @@ async def search_samples(keyword: str, max_results: int = 100) -> str:
 
 
 async def _search_by_bpm_no_range(keyword: str, max_results: int, audio) -> str:
-    """No tempo range in play -- unchanged since before Phase 2 #3 existed."""
+    """No tempo range in play -- plain keyword search, no BPM filtering at all."""
     outcome = search_libraries(keyword, max_results)
     matches = outcome.matches
 
@@ -510,10 +511,10 @@ async def _search_by_bpm_ranged(
     audio,
 ) -> str:
     """A tempo range is in play. Two families of match: files whose own
-    filename/folder label puts them in range (free, trustworthy -- #3a), and
+    filename/folder label puts them in range (free, trustworthy), and
     files with NO tempo label at all, run through detection and offered only
-    if an octave-aware reading lands in range (Phase 2 #3b -- the real Pro
-    differentiator, since free search can only ever find a labelled range).
+    if an octave-aware reading lands in range (the real Pro differentiator,
+    since free search can only ever find a labelled range).
     """
     outcome = search_libraries(
         keyword, CANDIDATE_POOL_SIZE, bpm_filter=target, allow_unlabelled=True
@@ -574,7 +575,7 @@ async def _search_by_bpm_ranged(
 
     # Only split into headed sections once the unlabelled section actually
     # has something to show -- the common labelled-only case keeps the exact
-    # #3a layout.
+    # single-section layout.
     show_headers = bool(labelled_rows) and bool(unlabelled_rows)
     i = 0
     if labelled_rows:

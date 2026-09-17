@@ -245,7 +245,7 @@ async def test_full_match_outranks_a_higher_scoring_partial(symptom_c_library):
 @pytest.mark.asyncio
 async def test_near_miss_pool_is_not_capped_at_the_first_n(partial_overflow_library):
     """The partial pool kept the FIRST 2,000 candidates in traversal order --
-    §Y's rank-after-truncate defect, still live in the partial path.
+    a rank-after-truncate defect, still live in the partial path.
     """
     result = await search_samples("zzz 174 break", max_results=20)
     assert "2500" in result
@@ -254,7 +254,7 @@ async def test_near_miss_pool_is_not_capped_at_the_first_n(partial_overflow_libr
 @pytest.mark.asyncio
 async def test_all_full_matches_keep_the_old_single_section_layout(mock_libraries):
     """When there are no near-misses to add, the output must be byte-identical
-    to before -- same precedent as #3b's labelled-only case.
+    to before -- same precedent as unlabelled discovery's labelled-only case.
     """
     result = await search_samples("kick", max_results=10)
     assert result.startswith("Found samples matching 'kick' (showing")
@@ -312,7 +312,7 @@ async def test_search_excludes_ableton_pack_previews(ableton_pack_library):
 
 
 # ---------------------------------------------------------------------------
-# search_samples_by_bpm -- tempo-range filtering (Phase 2 #3a)
+# search_samples_by_bpm -- tempo-range filtering
 # ---------------------------------------------------------------------------
 
 
@@ -493,7 +493,7 @@ class TestFormatBpmLine:
         )
 
     def test_fast_tempo_one_bar_loop_is_not_misclassified_as_one_shot(self):
-        """Regression for the flat-cutoff defect (§V-8): a genuine 1-bar loop
+        """Regression for the flat-cutoff defect: a genuine 1-bar loop
         at a fast tempo (174 BPM -> 1.38s/bar) used to read as a one-shot
         purely because 1.38s is under a flat few-second threshold, with no
         regard for what 1.38s actually means at that tempo."""
@@ -601,7 +601,7 @@ class TestFormatBpmLine:
 
 
 # ---------------------------------------------------------------------------
-# Detection-discovery of unlabelled files (Phase 2 #3b)
+# Detection-discovery of unlabelled files
 # ---------------------------------------------------------------------------
 
 
@@ -728,10 +728,11 @@ class TestDiscoverUnlabelled:
         assert considered == 1  # rejected, but still honestly "considered"
 
     def test_fast_tempo_short_loop_now_reaches_decode_and_admission(self):
-        """Regression for §V-8: a genuine 1-bar loop at a fast tempo (174 BPM
-        -> 1.38s) used to be rejected before decode purely because 1.38s was
-        under the old flat 3.0s cutoff -- so unlabelled discovery could never
-        find it. It must now reach detection and be admitted."""
+        """Regression for the flat-cutoff defect: a genuine 1-bar loop at a
+        fast tempo (174 BPM -> 1.38s) used to be rejected before decode
+        purely because 1.38s was under the old flat 3.0s cutoff -- so
+        unlabelled discovery could never find it. It must now reach
+        detection and be admitted."""
         duration = 240.0 / 174.0  # exactly 1 bar at 174 BPM
         candidates = [("/lib/short_loop.wav", "Lib")]
         audio = _FakeAudio(
@@ -886,7 +887,7 @@ async def test_bpm_range_shows_both_sections_and_caches_in_displayed_order(
     # Both labelled hits (same score tier) precede the unlabelled candidate,
     # numbered continuously across the section break; their relative order
     # is the engine's existing tie-break (shorter path first) -- unrelated
-    # to #3b and not what this test is pinning down.
+    # to unlabelled discovery and not what this test is pinning down.
     assert result.index("1. TSP_NOISIA_") < result.index("2. TSP_NOISIA_")
     assert result.index("2. TSP_NOISIA_") < result.index("3. amen_chop_beta.wav")
 
