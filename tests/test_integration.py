@@ -37,7 +37,7 @@ class TestServerCreation:
         assert mcp is not None
 
     def test_create_server_does_not_warm_audio_stack_itself(self):
-        """create_server() must only WIRE UP the warm-up (via the FastMCP
+        """create_server() must only WIRE UP the warm-up (via the MCPServer
         lifespan) -- it must not run the heavy numpy/scipy/soundfile import
         itself. Running it inline here would put us back to blocking the
         caller (and, in production, the MCP `initialize` handshake) on the

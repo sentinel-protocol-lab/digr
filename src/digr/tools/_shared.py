@@ -85,7 +85,7 @@ _audio_ready = threading.Event()  # set once the warm-up import attempt complete
 def _log_warmup(message: str) -> None:
     """Print a timestamped warm-up line to stderr.
 
-    FastMCP/stdio forwards the server's stderr into the client's MCP log, so
+    MCPServer/stdio forwards the server's stderr into the client's MCP log, so
     these lines are how we observe the real cold-import cost on a customer
     machine without attaching a debugger.
     """
