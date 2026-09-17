@@ -46,11 +46,6 @@ jobs:
             ### Mac (fallback)
             Download `install-mac.command` and the `.mcpb` into the same folder, then double-click `install-mac.command`.
 
-            ### Terminal (uvx)
-            ```bash
-            uvx --with 'digr[audio]' digr
-            ```
-
             See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full configuration options.
           files: |
             dist/digr-${{ steps.version.outputs.version }}.mcpb
