@@ -12,6 +12,8 @@ and helps you organise thousands of files without manual browsing.
 
 Everything runs locally: nothing is uploaded, and nothing is used to train AI.
 
+Free to use, with every tool included. No account or license key needed.
+
 Works with Claude Desktop and any MCP-compatible client.
 Mac and Windows. Any DAW or no DAW at all.
 
