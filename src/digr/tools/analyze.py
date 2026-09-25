@@ -13,7 +13,7 @@ from ._query import (
     is_ableton_compressed_aiff,
     is_one_shot_duration,
 )
-from ._shared import audio_warming_message, identify_library, require_pro
+from ._shared import audio_warming_message, identify_library
 
 _MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -50,12 +50,8 @@ async def analyze_sample(filepath: str) -> str:
     """Detect BPM and musical key of an audio sample.
 
     Returns tempo, estimated key, duration, and sample rate.
-    Requires the [audio] extras. Pro feature.
+    Requires the [audio] extras.
     """
-    gate = require_pro("analyze_sample")
-    if gate:
-        return gate
-
     # If the heavy audio stack is still cold-loading in the background, return a
     # fast note instead of blocking past Claude's 240s tool-call timeout.
     warming = audio_warming_message()
@@ -167,12 +163,8 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
     """Read a MIDI file and return its notes in bar|beat format.
 
     Returns file metadata (tempo, time signature, track names, total notes).
-    Use track_index=-1 to list all tracks without reading notes. Pro feature.
+    Use track_index=-1 to list all tracks without reading notes.
     """
-    gate = require_pro("read_midi")
-    if gate:
-        return gate
-
     file_path = Path(filepath)
     if not file_path.exists():
         return (

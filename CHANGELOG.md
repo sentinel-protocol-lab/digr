@@ -2,6 +2,14 @@
 
 All notable changes to Digr are documented here.
 
+## [1.3.0] - 2026-09-25
+
+### Changed
+- Digr is now completely free. BPM and key detection, MIDI reading, auto-sort and rename-with-metadata no longer need a licence key.
+
+### Removed
+- The `activate_license` tool. There is nothing to activate any more, so the tool count is now 16. A licence key file left on disk from an earlier version is simply ignored.
+
 ## [1.2.0] - 2026-09-17
 
 ### Added

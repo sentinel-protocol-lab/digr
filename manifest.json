@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "digr",
   "display_name": "Digr",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Search your sample library by describing what you want. BPM/key detection, MIDI reading, and AI-powered organisation across multiple libraries.",
   "author": {
     "name": "Sentinel Protocol Lab"
@@ -80,10 +80,6 @@
     {
       "name": "remove_library",
       "description": "Remove a sample library by name"
-    },
-    {
-      "name": "activate_license",
-      "description": "Save a pasted Pro license key and unlock Pro features"
     }
   ],
   "user_config": {

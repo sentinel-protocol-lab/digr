@@ -21,7 +21,6 @@ from ._shared import (
     identify_library,
     parse_filepaths,
     parse_result_numbers,
-    require_pro,
     search_all_libraries,
 )
 
@@ -251,7 +250,7 @@ async def rename_with_metadata(
     """Rename audio samples by adding a prefix and/or appending detected BPM and musical key.
 
     First call returns a PREVIEW of old -> new names. Call again with confirm=true to execute.
-    Prefix-only renaming is free. BPM/key detection requires a Pro license and [audio] extras.
+    Prefix-only renaming needs no audio analysis. BPM/key detection requires the [audio] extras.
 
     include_bpm and include_key default to FALSE and must be asked for. Both
     write a permanent, un-typed-back change to the user's filenames on the
@@ -261,12 +260,7 @@ async def rename_with_metadata(
     """
     needs_audio = include_bpm or include_key
 
-    # Only gate behind Pro when audio analysis is requested
     if needs_audio:
-        gate = require_pro("rename_with_metadata")
-        if gate:
-            return gate
-
         # If the heavy audio stack is still cold-loading in the background,
         # return a fast note instead of blocking past Claude's 240s timeout.
         warming = audio_warming_message()
@@ -424,7 +418,7 @@ async def undo_rename(confirm: bool = False) -> str:
     """Reverse the most recent rename_with_metadata batch, restoring old filenames.
 
     First call returns a PREVIEW of what would be restored. Call again with
-    confirm=true to execute. Free tool -- no license required.
+    confirm=true to execute.
     """
     batch = last_batch()
     if batch is None:
@@ -515,12 +509,8 @@ async def sort_samples(
     """Sort samples matching a keyword into categorized subfolders.
 
     Default categories: Kicks, Snares, Claps, HiHats, Percussion, Bass, FX, Loops, Other.
-    First call returns a PREVIEW. Call again with confirm=true to execute. Pro feature.
+    First call returns a PREVIEW. Call again with confirm=true to execute.
     """
-    gate = require_pro("sort_samples")
-    if gate:
-        return gate
-
     matches = search_all_libraries(source_keyword, max_results)
     if not matches:
         return f"No samples found matching '{source_keyword}' across all libraries"

@@ -1,14 +1,11 @@
-"""Integration tests: multi-tool workflows, server creation, Pro gating in context."""
+"""Integration tests: multi-tool workflows, server creation."""
 
 import pytest
 
 from digr.config import Config
 from digr.server import create_server
 import digr.tools._shared as shared
-from digr.tools._shared import (
-    get_last_search_results,
-    set_license_key,
-)
+from digr.tools._shared import get_last_search_results
 from digr.tools.organize import (
     collect_samples,
     collect_search_results,
@@ -27,12 +24,6 @@ class TestServerCreation:
 
     def test_create_server_with_libraries(self, sample_dir):
         config = Config(libraries={"Test": sample_dir})
-        mcp = create_server(config)
-        assert mcp is not None
-
-    def test_create_server_with_license_key(self):
-        # Verification is lazy, so server creation must not touch the network.
-        config = Config(license_key="A1B2C3D4-E5F60718-9ABCDEF0-1234ABCD")
         mcp = create_server(config)
         assert mcp is not None
 
@@ -80,7 +71,7 @@ class TestServerCreation:
 
 
 class TestAudioWarmupGate:
-    """The 'still warming up' gate keeps a cold first Pro call from blocking
+    """The 'still warming up' gate keeps a cold first audio call from blocking
     past Claude's 240s tool-call timeout: it returns a fast note until the
     background import has finished. It's a single instant check -- never a
     wait -- because an in-process wait can stall on the GIL while the warm-up
@@ -101,7 +92,7 @@ class TestAudioWarmupGate:
             shared._audio_ready.set()  # restore for later tests
 
     @pytest.mark.asyncio
-    async def test_bpm_search_short_circuits_while_cold(self, mock_libraries, pro_license):
+    async def test_bpm_search_short_circuits_while_cold(self, mock_libraries):
         """While the audio stack is cold, search_samples_by_bpm returns the
         warming note WITHOUT running the heavy per-file analysis loop."""
         from digr.tools.search import search_samples_by_bpm
@@ -174,25 +165,11 @@ class TestCollectSamplesWorkflow:
         assert (tmp_path / "dest").exists()
 
 
-class TestProGatingInWorkflow:
-    """Integration: verify Pro tools are gated in realistic workflows."""
+class TestSortInWorkflow:
+    """Integration: sort_samples previews in a realistic workflow."""
 
     @pytest.mark.asyncio
-    async def test_sort_blocked_without_license(self, mock_libraries, tmp_path):
-        original = shared.ENFORCE_LICENSE_GATE
-        shared.ENFORCE_LICENSE_GATE = True
-        try:
-            set_license_key(None)
-            dest = str(tmp_path / "sorted")
-            result = await sort_samples("kick", dest, confirm=False)
-            assert "Pro feature" in result
-            assert "sort_samples" in result
-            assert not (tmp_path / "sorted").exists()
-        finally:
-            shared.ENFORCE_LICENSE_GATE = original
-
-    @pytest.mark.asyncio
-    async def test_sort_works_with_license(self, mock_libraries, pro_license, tmp_path):
+    async def test_sort_previews_categories(self, mock_libraries, tmp_path):
         dest = str(tmp_path / "sorted")
         result = await sort_samples("wav", dest, confirm=False)
         assert "PREVIEW" in result
@@ -206,7 +183,7 @@ class TestAnalyzeSampleReportsNativeMetadata:
     for the bug where both fields reflected the analysis buffer, not the asset."""
 
     @pytest.mark.asyncio
-    async def test_reports_native_rate_and_duration_not_analysis_buffer(self, tmp_path, pro_license):
+    async def test_reports_native_rate_and_duration_not_analysis_buffer(self, tmp_path):
         import numpy as np
         import soundfile as sf
 
@@ -256,7 +233,7 @@ class TestAnalyzeSampleOneShotGuardIsTempoAware:
 
     @pytest.mark.asyncio
     async def test_one_bar_loop_at_a_fast_tempo_still_reports_a_bpm(
-        self, tmp_path, pro_license
+        self, tmp_path
     ):
         import soundfile as sf
 
