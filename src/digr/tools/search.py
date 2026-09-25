@@ -22,7 +22,6 @@ from ._query import (
 from ._shared import (
     audio_warming_message,
     get_libraries,
-    require_pro,
     search_libraries,
     set_last_search_results,
 )
@@ -513,7 +512,7 @@ async def _search_by_bpm_ranged(
     """A tempo range is in play. Two families of match: files whose own
     filename/folder label puts them in range (free, trustworthy), and
     files with NO tempo label at all, run through detection and offered only
-    if an octave-aware reading lands in range (the real Pro differentiator,
+    if an octave-aware reading lands in range (the real differentiator,
     since free search can only ever find a labelled range).
     """
     outcome = search_libraries(
@@ -628,17 +627,13 @@ async def search_samples_by_bpm(
     matching files that carry NO tempo label at all, offering any whose
     detected tempo (allowing an exact half/double reading) lands in range as
     a candidate worth auditioning -- clearly separated from the confirmed,
-    labelled matches and never asserted as certain. That's the real Pro
-    value: free search can only ever find a labelled range.
+    labelled matches and never asserted as certain. That's the real
+    value: keyword search can only ever find a labelled range.
 
     Without a range, every match is detected and shown as before. Recommended
     5-20 results for speed. Results are balanced across all configured
-    libraries. Pro feature.
+    libraries.
     """
-    gate = require_pro("search_samples_by_bpm")
-    if gate:
-        return gate
-
     bpm_filter = _resolve_bpm_filter(min_bpm, max_bpm)
     effective_range = bpm_filter
     if effective_range is None:

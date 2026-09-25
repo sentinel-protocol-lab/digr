@@ -12,6 +12,8 @@ and helps you organise thousands of files without manual browsing.
 
 Everything runs locally: nothing is uploaded, and nothing is used to train AI.
 
+Free to use, with every tool included. No account or license key needed.
+
 Works with Claude Desktop and any MCP-compatible client.
 Mac and Windows. Any DAW or no DAW at all.
 
@@ -71,36 +73,27 @@ edit. Remove one the same way: "remove the Packs library."
 
 ## Tools
 
-| Tool | Description | Tier |
-|------|-------------|------|
-| `search_samples` | Search for audio samples and MIDI files across all libraries | Free |
-| `list_libraries` | Show configured library locations and status | Free |
-| `list_folders` | List top-level folders across all libraries | Free |
-| `count_samples_in_folder` | Count samples in a specific folder | Free |
-| `list_all_samples_in_folder` | List all samples in a folder | Free |
-| `collect_samples` | Copy/move samples by keyword | Free |
-| `copy_samples` | Copy/move specific files by path | Free |
-| `collect_search_results` | Copy/move from last search results | Free |
-| `add_library` | Add a sample library path at runtime | Free |
-| `remove_library` | Remove a sample library by name | Free |
-| `activate_license` | Save a Pro license key and unlock Pro instantly (no restart) | Free |
-| `undo_rename` | Reverse the most recent `rename_with_metadata` batch | Free |
-| `analyze_sample` | Detect BPM and musical key (requires `[audio]`) | Pro |
-| `search_samples_by_bpm` | Search and auto-detect BPM for each result | Pro |
-| `read_midi` | Read MIDI file notes in bar\|beat format | Pro |
-| `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) | Pro |
-| `sort_samples` | Sort into categorized subfolders | Pro |
+| Tool | Description |
+|------|-------------|
+| `search_samples` | Search for audio samples and MIDI files across all libraries |
+| `list_libraries` | Show configured library locations and status |
+| `list_folders` | List top-level folders across all libraries |
+| `count_samples_in_folder` | Count samples in a specific folder |
+| `list_all_samples_in_folder` | List all samples in a folder |
+| `collect_samples` | Copy/move samples by keyword |
+| `copy_samples` | Copy/move specific files by path |
+| `collect_search_results` | Copy/move from last search results |
+| `add_library` | Add a sample library path at runtime |
+| `remove_library` | Remove a sample library by name |
+| `undo_rename` | Reverse the most recent `rename_with_metadata` batch |
+| `analyze_sample` | Detect BPM and musical key (requires `[audio]`) |
+| `search_samples_by_bpm` | Search and auto-detect BPM for each result |
+| `read_midi` | Read MIDI file notes in bar\|beat format |
+| `rename_with_metadata` | Rename with BPM/key appended (requires `[audio]`) |
+| `sort_samples` | Sort into categorized subfolders |
 
 Every rename `rename_with_metadata` makes is logged, and `undo_rename` can
-reverse the most recent batch — free, with no license required, so a rename
-gone wrong is never stranded behind a licence check.
-
-**Digr Pro** unlocks BPM & key detection, MIDI reading, and automatic sample sorting.
-**[Get a Digr Pro license →](https://sentinelprotocol.co.uk/digr/pro)**
-
-Once you have your key, activate it by **pasting it to your AI assistant** and
-asking it to activate Digr Pro — the `activate_license` tool saves the key for
-you and unlocks Pro immediately, with no restart.
+reverse the most recent batch, so a rename gone wrong is never stranded.
 
 ### Notes
 

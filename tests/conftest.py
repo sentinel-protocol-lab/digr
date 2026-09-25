@@ -11,10 +11,9 @@ from digr.tools._shared import set_libraries
 
 @pytest.fixture(autouse=True)
 def _isolate_config_dir(tmp_path_factory, monkeypatch):
-    """Redirect every config/license write into a throwaway temp dir.
+    """Redirect every config write into a throwaway temp dir.
 
-    Digr persists libraries to ``~/.config/digr/config.yaml`` (and the licence
-    key/token alongside). Without isolation, any test that calls ``add_library``
+    Digr persists libraries to ``~/.config/digr/config.yaml``. Without isolation, any test that calls ``add_library``
     writes to the developer's REAL config and clobbers their live library list
     (this actually happened — see fix-test-config-isolation). ``DIGR_CONFIG_DIR``
     overrides the config dir on all platforms, so pointing it at a fresh temp
@@ -40,7 +39,7 @@ def _reset_libraries():
 
 @pytest.fixture(autouse=True)
 def _audio_stack_ready():
-    """Treat the audio stack as warmed by default so Pro audio tools run their
+    """Treat the audio stack as warmed by default so the audio tools run their
     real logic in tests.
 
     The background warm-up (and the "still warming up" gate it feeds) only runs
@@ -326,33 +325,3 @@ def reset_search_cache():
     set_last_search_results([])
     yield
     set_last_search_results([])
-
-
-@pytest.fixture(autouse=True)
-def reset_license(monkeypatch):
-    """Reset license state before each test to ensure isolation.
-
-    Also blanks the product ID (env var AND baked-in constant) so no test can
-    accidentally reach the real Gumroad API; tests that need a product ID set
-    DIGR_GUMROAD_PRODUCT_ID explicitly, which takes priority.
-    """
-    import digr.licensing as licensing
-    from digr.tools._shared import set_license_key
-
-    monkeypatch.delenv("DIGR_GUMROAD_PRODUCT_ID", raising=False)
-    monkeypatch.setattr(licensing, "GUMROAD_PRODUCT_ID", None)
-    set_license_key(None)
-    yield
-    set_license_key(None)
-
-
-@pytest.fixture
-def pro_license(monkeypatch):
-    """Unlock Pro tools by stubbing license activation (no network, no token files)."""
-    import digr.licensing as licensing
-    from digr.tools._shared import set_license_key
-
-    monkeypatch.setattr(licensing, "activate_or_check", lambda key: (True, None))
-    set_license_key("TEST0000-TEST0000-TEST0000-TEST0000")
-    yield
-    set_license_key(None)

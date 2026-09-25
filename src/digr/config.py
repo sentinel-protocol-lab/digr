@@ -9,7 +9,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .platform_detect import auto_detect_libraries, default_config_dir, default_config_path
+from .platform_detect import auto_detect_libraries, default_config_path
 
 
 @dataclass
@@ -17,7 +17,6 @@ class Config:
     """Server configuration."""
 
     libraries: dict[str, Path] = field(default_factory=dict)
-    license_key: str | None = None
 
 
 def load_config(
@@ -68,20 +67,6 @@ def load_config(
                 # If no name given, use the folder name
                 p = Path(lib.strip())
                 config.libraries[p.name] = p
-
-    # 5. Load license key (env var > file)
-    license_key = os.environ.get("DIGR_LICENSE_KEY")
-    if not license_key:
-        license_file = default_config_dir() / "license.key"
-        if license_file.exists():
-            try:
-                # utf-8-sig strips a leading BOM if a Windows editor (e.g.
-                # Notepad) added one when the user saved their key; .strip()
-                # alone would leave the BOM and break verification.
-                license_key = license_file.read_text(encoding="utf-8-sig").strip()
-            except (OSError, UnicodeDecodeError):
-                license_key = None
-    config.license_key = license_key or None
 
     return config
 

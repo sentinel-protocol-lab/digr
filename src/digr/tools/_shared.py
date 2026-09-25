@@ -1,4 +1,4 @@
-"""Shared utilities for all tools: search engine, file helpers, state cache, license gating."""
+"""Shared utilities for all tools: search engine, file helpers, state cache."""
 
 import heapq
 import json
@@ -41,22 +41,11 @@ _last_search_results: list[tuple[str, str]] = []  # [(path, library_name), ...]
 # Libraries dict set at server startup from config
 _libraries: dict[str, Path] = {}
 
-# --- License gate configuration ---
-# When True, Pro tools require a Gumroad-verified license (see digr/licensing.py).
-ENFORCE_LICENSE_GATE = True
-
-# --- License key state ---
-_license_key: str | None = None
-# Memoized (licensed, reason_if_not) from licensing.activate_or_check, so the
-# network is consulted at most once per server run.
-_license_status: tuple[bool, str | None] | None = None
-
-
 # --- Audio stack warm-up state ---
-# The Pro audio tools (analyze_sample, search_samples_by_bpm, rename_with_metadata)
+# The audio tools (analyze_sample, search_samples_by_bpm, rename_with_metadata)
 # need numpy/scipy/soundfile. Importing that stack is only a few seconds on the
 # MAIN thread -- but where and when the import happens matters enormously:
-#   * lazily, on the first Pro call -> it sits on Claude Desktop's 240s tool-call
+#   * lazily, on the first audio call -> it sits on Claude Desktop's 240s tool-call
 #     path and a slow cold load blows the timeout (first BPM search hangs);
 #   * on a BACKGROUND daemon thread -> a C-extension import there starves for the
 #     GIL against the idle asyncio/stdio loop and can stall for MINUTES (observed
@@ -75,10 +64,10 @@ _license_status: tuple[bool, str | None] | None = None
 # runs warm_audio_stack() as a lifespan task. Two pieces live here:
 #   1. warm_audio_stack() does the main-thread import, times it, and sets
 #      _audio_ready.
-#   2. audio_warming_message() is a belt-and-suspenders gate: if a Pro call
+#   2. audio_warming_message() is a belt-and-suspenders gate: if an audio call
 #      arrives before _audio_ready is set (the import is still running, or a
 #      request queued up behind it) it returns a fast "still warming up" note
-#      instead of blocking, so a Pro tool can never hang on a cold import.
+#      instead of blocking, so an audio tool can never hang on a cold import.
 _audio_ready = threading.Event()  # set once the warm-up import attempt completes
 
 
@@ -133,7 +122,7 @@ def audio_warming_message() -> str | None:
     """
     if _audio_ready.is_set():
         return None
-    _log_warmup("a Pro audio tool was called before warm-up finished; asked to retry")
+    _log_warmup("an audio tool was called before warm-up finished; asked to retry")
     return (
         "Digr's audio engine is still warming up -- a one-time background load "
         "of the BPM/key-detection libraries that runs when Digr starts. This is "
@@ -221,95 +210,6 @@ def set_last_search_results(results: list[tuple[str, str]]) -> None:
 def get_last_search_results() -> list[tuple[str, str]]:
     """Get the cached search results."""
     return _last_search_results
-
-
-# --- License key management ---
-
-
-def set_license_key(key: str | None) -> None:
-    """Store the license key from config. Called at server startup.
-
-    Verification happens lazily on the first Pro tool call (see
-    _license_check) so startup never waits on the network.
-    """
-    global _license_key, _license_status
-    cleaned = key.strip() if isinstance(key, str) else None
-    _license_key = cleaned or None
-    _license_status = None
-
-
-def _license_check() -> tuple[bool, str | None]:
-    """Activate or re-check the license, memoizing the result for this run."""
-    global _license_status
-    if _license_status is None:
-        from ..licensing import activate_or_check
-
-        _license_status = activate_or_check(_license_key)
-    return _license_status
-
-
-def activate_license_key(key: str) -> tuple[bool, str | None]:
-    """Verify a just-pasted key NOW and remember the result for the gate.
-
-    set_license_key (used at startup) is lazy — it waits for the first Pro tool
-    call to verify. This is the eager path used by the activate_license tool: it
-    loads the key, clears the memoized status, and runs the check immediately so
-    Pro is unlocked in the SAME session, with no Claude restart.
-
-    Returns (licensed, reason_if_not).
-    """
-    set_license_key(key)
-    return _license_check()
-
-
-def is_pro_licensed() -> bool:
-    """Check if the current session has a valid Pro license."""
-    return _license_check()[0]
-
-
-def require_pro(tool_name: str) -> str | None:
-    """Check Pro license. Returns None if licensed, or an upgrade message if not.
-
-    Usage in tool functions:
-        gate = require_pro("analyze_sample")
-        if gate:
-            return gate
-        # ... rest of tool logic
-    """
-    if not ENFORCE_LICENSE_GATE:
-        return None
-    licensed, reason = _license_check()
-    if licensed:
-        return None
-
-    from ..platform_detect import default_config_dir
-
-    key_file = default_config_dir() / "license.key"
-
-    parts = [f"'{tool_name}' is a Pro feature."]
-    if reason:
-        parts.append(reason)
-    else:
-        parts.append("Get a license key at https://sentinelprotocol.co.uk/digr")
-    parts.append(
-        "Already purchased? Just paste your license key here and I'll activate "
-        "it for you right away — Pro unlocks immediately, no restart needed.\n\n"
-        "Prefer to set it up by hand? Put the key in a file or an env var:\n"
-        f"  - File: {key_file}\n"
-        "  - Environment: DIGR_LICENSE_KEY=your-key-here"
-    )
-    # MAINTENANCE: this list is hardcoded and nothing ties it to the tool
-    # registrations in server.py, which is why it silently went stale once
-    # already (it missed undo_rename -- the one tool that reverses a bad
-    # rename, free precisely so a blocked user can still reach it, and the
-    # single most useful thing to name at the moment someone is blocked).
-    # Adding a free tool means editing here too.
-    parts.append(
-        "Free tools available: search_samples, list_libraries, list_folders, "
-        "count_samples_in_folder, list_all_samples_in_folder, collect_samples, "
-        "copy_samples, collect_search_results, undo_rename, activate_license"
-    )
-    return "\n\n".join(parts)
 
 
 def is_junk_path(file_path: Path) -> bool:

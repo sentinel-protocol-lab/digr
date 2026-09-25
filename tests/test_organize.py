@@ -78,7 +78,7 @@ async def test_collect_search_results_preview(mock_libraries, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sort_samples_preview(mock_libraries, pro_license, tmp_path):
+async def test_sort_samples_preview(mock_libraries, tmp_path):
     dest = str(tmp_path / "sorted")
     result = await sort_samples("wav", dest, max_results=20, confirm=False)
     # Should categorize some files
@@ -86,7 +86,7 @@ async def test_sort_samples_preview(mock_libraries, pro_license, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
+async def test_sort_samples_execute(mock_libraries, tmp_path):
     dest = str(tmp_path / "sorted")
     result = await sort_samples(
         "kick", dest, categories="Kicks,Other", max_results=10, confirm=True
@@ -97,7 +97,7 @@ async def test_sort_samples_execute(mock_libraries, pro_license, tmp_path):
 
 @pytest.mark.asyncio
 async def test_sort_samples_routes_singular_filenames_by_category(
-    singular_filenames_library, pro_license, tmp_path
+    singular_filenames_library, tmp_path
 ):
     """The old check only matched a category name ("kicks") as a raw
     substring of the full path, so it never found "kicks" inside a real,
@@ -127,7 +127,7 @@ async def test_sort_samples_routes_singular_filenames_by_category(
 # ---------------------------------------------------------------------------
 #
 # This tool renames the user's files IN PLACE with no undo, and had no
-# behaviour tests until now -- only licence-gate references. The defect that
+# behaviour tests. The defect that
 # prompted these was found on a real drive, not by this suite: a file the
 # producer had labelled 117 BPM was permanently renamed to 123bpm, because
 # detection landed inside the old +/-8% agreement window and its estimate was
@@ -166,7 +166,7 @@ def _write_tone(directory, name: str, freq: float, sr: int = 22050):
 
 
 @pytest.mark.asyncio
-async def test_rename_keeps_a_labelled_files_own_tempo(pro_license, tmp_path):
+async def test_rename_keeps_a_labelled_files_own_tempo(tmp_path):
     """The real-drive defect. The file says 117 and measures ~123; the rename
     must not put 123 on it. A filename BPM is the producer's statement about
     their own file, and detection is an estimate -- the estimate must never
@@ -180,7 +180,7 @@ async def test_rename_keeps_a_labelled_files_own_tempo(pro_license, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_rename_does_not_append_a_label_to_itself(pro_license, tmp_path):
+async def test_rename_does_not_append_a_label_to_itself(tmp_path):
     """A file already labelled 112 gains no second tag."""
     path = _write_loop(tmp_path, "voice-fx-spooky-scream_112bpm.wav", 112.0)
 
@@ -192,7 +192,7 @@ async def test_rename_does_not_append_a_label_to_itself(pro_license, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_rename_dedup_sees_through_case_and_spacing(pro_license, tmp_path):
+async def test_rename_dedup_sees_through_case_and_spacing(tmp_path):
     """Real packs write "145BPM", "145 bpm" and "145_bpm" for the same thing,
     and the dedup has to read all of them as already stated."""
     path = _write_loop(tmp_path, "FPV_Kit_Drop_145BPM.wav", 145.0)
@@ -205,7 +205,7 @@ async def test_rename_dedup_sees_through_case_and_spacing(pro_license, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_rename_still_appends_to_an_unlabelled_file(pro_license, tmp_path):
+async def test_rename_still_appends_to_an_unlabelled_file(tmp_path):
     """The feature still works: with no label to defer to, the measurement is
     what the tool has to offer and it is appended."""
     path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
@@ -218,7 +218,7 @@ async def test_rename_still_appends_to_an_unlabelled_file(pro_license, tmp_path)
 
 @pytest.mark.asyncio
 async def test_rename_does_not_put_a_detected_key_beside_a_labelled_one(
-    pro_license, tmp_path
+    tmp_path
 ):
     """The file states A minor and sounds like E, and the rename used to
     append the guess anyway: "Bass_Am.wav" became "Bass_Am_E.wav" -- our
@@ -236,7 +236,7 @@ async def test_rename_does_not_put_a_detected_key_beside_a_labelled_one(
 
 
 @pytest.mark.asyncio
-async def test_rename_still_appends_a_key_to_an_unlabelled_file(pro_license, tmp_path):
+async def test_rename_still_appends_a_key_to_an_unlabelled_file(tmp_path):
     """The feature still works where the name states nothing to defer to."""
     path = _write_tone(tmp_path, "untitled_tone.wav", 329.63)
 
@@ -247,7 +247,7 @@ async def test_rename_still_appends_a_key_to_an_unlabelled_file(pro_license, tmp
 
 @pytest.mark.asyncio
 async def test_rename_names_the_codec_instead_of_leaking_a_decode_error(
-    pro_license, tmp_path, write_ableton_aifc
+    tmp_path, write_ableton_aifc
 ):
     """A file in Ableton's undecodable codec must never reach load_audio --
     the old behaviour leaked the raw libsndfile string into the preview as
@@ -265,7 +265,7 @@ async def test_rename_names_the_codec_instead_of_leaking_a_decode_error(
 
 
 @pytest.mark.asyncio
-async def test_rename_metadata_flags_are_both_off_by_default(pro_license, tmp_path):
+async def test_rename_metadata_flags_are_both_off_by_default(tmp_path):
     """Both flags write a permanent change on the strength of an estimate, so
     neither may happen unless asked for -- key detection measures 29.6% exact
     against real labelled audio, which is what makes the default matter."""
@@ -280,8 +280,8 @@ async def test_rename_metadata_flags_are_both_off_by_default(pro_license, tmp_pa
 
 @pytest.mark.asyncio
 async def test_rename_prefix_only_still_works(tmp_path):
-    """Prefix-only renaming is the free path and is unaffected by any of this
-    -- note this test deliberately takes no pro_license fixture."""
+    """Prefix-only renaming needs no audio analysis and is unaffected by any of
+    this."""
     path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
 
     preview = await rename_with_metadata(str(path), prefix="DNB")
@@ -327,8 +327,7 @@ async def test_rename_confirm_actually_renames(tmp_path):
 async def test_undo_restores_a_prefix_rename(tmp_path):
     """Prefix-only renaming is the FREE path and involves no detection at all,
     but a typo applied to a whole library is still a manual repair job. It has
-    to be logged and undoable like anything else -- note no pro_license here,
-    for either the rename or the undo."""
+    to be logged and undoable like anything else."""
     path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
     await rename_with_metadata(str(path), prefix="DNB", confirm=True)
     assert (tmp_path / "DNB_untitled_loop.wav").exists()
@@ -484,24 +483,3 @@ async def test_rename_points_the_user_at_undo(tmp_path):
     result = await rename_with_metadata(str(path), prefix="DNB", confirm=True)
 
     assert "undo_rename" in result
-
-
-@pytest.mark.asyncio
-async def test_undo_is_free_and_works_with_no_licence(tmp_path):
-    """Undoing damage must never sit behind a licence. A lapsed or unactivated
-    key would strand a user mid-rename, which is exactly when they need this
-    most. The gate is ON and no key is set here (see conftest's reset_license),
-    so this test fails the moment undo_rename is made Pro."""
-    from digr.tools import _shared
-    from digr.tools._shared import is_pro_licensed
-
-    assert _shared.ENFORCE_LICENSE_GATE  # the gate is live for this test
-    assert not is_pro_licensed()  # and the user has no licence
-
-    path = _write_loop(tmp_path, "untitled_loop.wav", 120.0)
-    await rename_with_metadata(str(path), prefix="DNB", confirm=True)
-
-    result = await undo_rename(confirm=True)
-
-    assert "Pro" not in result
-    assert (tmp_path / "untitled_loop.wav").exists()

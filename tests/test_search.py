@@ -91,7 +91,7 @@ async def test_search_matches_folder_names(mock_libraries):
 
 
 @pytest.mark.asyncio
-async def test_bpm_search_caches_results(mock_libraries, pro_license):
+async def test_bpm_search_caches_results(mock_libraries):
     """collect_search_results must work after a BPM search, not read a stale cache."""
     await search_samples_by_bpm("kick", max_results=10)
     cached = get_last_search_results()
@@ -100,7 +100,7 @@ async def test_bpm_search_caches_results(mock_libraries, pro_license):
 
 
 @pytest.mark.asyncio
-async def test_bpm_search_replaces_stale_keyword_cache(mock_libraries, pro_license):
+async def test_bpm_search_replaces_stale_keyword_cache(mock_libraries):
     """A BPM search after a keyword search must overwrite the older results —
     otherwise 'collect number 2' would silently copy a file from the old search."""
     await search_samples("snare", max_results=10)
@@ -317,7 +317,7 @@ async def test_search_excludes_ableton_pack_previews(ableton_pack_library):
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_explicit_params_filter(bpm_range_library, pro_license):
+async def test_bpm_range_explicit_params_filter(bpm_range_library):
     """min_bpm/max_bpm must reach the shakers labelled only by a bare number
     ("_172_", no literal "bpm" word) and exclude the one outside the range."""
     result = await search_samples_by_bpm("shaker", min_bpm=170, max_bpm=178)
@@ -328,7 +328,7 @@ async def test_bpm_range_explicit_params_filter(bpm_range_library, pro_license):
 
 @pytest.mark.asyncio
 async def test_bpm_range_keyword_filter_matches_explicit_params(
-    bpm_range_library, pro_license
+    bpm_range_library
 ):
     """A range typed straight into the keyword must filter identically to
     passing the same range as min_bpm/max_bpm."""
@@ -338,14 +338,14 @@ async def test_bpm_range_keyword_filter_matches_explicit_params(
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_min_only(bpm_range_library, pro_license):
+async def test_bpm_range_min_only(bpm_range_library):
     result = await search_samples_by_bpm("shaker", min_bpm=180)
     assert "TSP_NOISIA_200_shaker.wav" in result
     assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" not in result
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_max_only(bpm_range_library, pro_license):
+async def test_bpm_range_max_only(bpm_range_library):
     result = await search_samples_by_bpm("shaker", max_bpm=175)
     assert "TSP_NOISIA_172_drum_loop_shakerloopedit.wav" in result
     assert "TSP_NOISIA_174_shaker_hats.wav" in result
@@ -353,13 +353,13 @@ async def test_bpm_range_max_only(bpm_range_library, pro_license):
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_shown_in_header(bpm_range_library, pro_license):
+async def test_bpm_range_shown_in_header(bpm_range_library):
     result = await search_samples_by_bpm("shaker", min_bpm=170, max_bpm=178)
     assert "170-178 BPM" in result
 
 
 @pytest.mark.asyncio
-async def test_bpm_no_range_header_unchanged(mock_libraries, pro_license):
+async def test_bpm_no_range_header_unchanged(mock_libraries):
     """Without any range (params or keyword), the header carries no range
     note -- existing callers see no behaviour change."""
     result = await search_samples_by_bpm("kick", max_results=10)
@@ -368,7 +368,7 @@ async def test_bpm_no_range_header_unchanged(mock_libraries, pro_license):
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_no_matches_names_the_range(bpm_range_library, pro_license):
+async def test_bpm_range_no_matches_names_the_range(bpm_range_library):
     result = await search_samples_by_bpm("shaker", min_bpm=250, max_bpm=260)
     assert "170-178" not in result  # sanity: not just echoing an old range
     assert "250-260 BPM" in result
@@ -376,7 +376,7 @@ async def test_bpm_range_no_matches_names_the_range(bpm_range_library, pro_licen
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_one_shot_real_audio(tmp_path, pro_license):
+async def test_bpm_range_one_shot_real_audio(tmp_path):
     """End-to-end with REAL decoded audio: a short in-range-labelled sample
     must filter in, decode, and be reported honestly as a one-shot rather
     than given a junk tempo. Closes the wiring gap the fake-bytes tests can't
@@ -403,7 +403,7 @@ async def test_bpm_range_one_shot_real_audio(tmp_path, pro_license):
 
 @pytest.mark.asyncio
 async def test_bpm_range_labelled_ableton_aiff_names_the_reason(
-    tmp_path, pro_license, write_ableton_aifc
+    tmp_path, write_ableton_aifc
 ):
     """A filename-labelled match in Ableton's undecodable codec is still a
     real match -- shown with its label and a plain reason detection can't
@@ -426,7 +426,7 @@ async def test_bpm_range_labelled_ableton_aiff_names_the_reason(
 
 @pytest.mark.asyncio
 async def test_bpm_range_unlabelled_ableton_aiff_is_never_a_candidate(
-    tmp_path, pro_license, write_ableton_aifc
+    tmp_path, write_ableton_aifc
 ):
     """An unlabelled file in an undecodable codec can never produce a
     detection, so it must not appear as a checked-but-failed candidate --
@@ -447,7 +447,7 @@ async def test_bpm_range_unlabelled_ableton_aiff_is_never_a_candidate(
 
 @pytest.mark.asyncio
 async def test_bpm_no_range_ableton_aiff_names_the_reason(
-    mock_libraries, pro_license, write_ableton_aifc, sample_dir
+    mock_libraries, write_ableton_aifc, sample_dir
 ):
     """Same fix on the no-range path: every match is decoded unconditionally
     there, so an undecodable file must be skipped just as cleanly."""
@@ -836,7 +836,7 @@ def _synth_break_loop(bpm: float, bars: int, sr: int = 22050, seed: int = 0):
 
 
 @pytest.mark.asyncio
-async def test_bpm_range_unlabelled_loop_discovered_by_detection(tmp_path, pro_license):
+async def test_bpm_range_unlabelled_loop_discovered_by_detection(tmp_path):
     """End-to-end with REAL decoded audio: a 4-bar 172 loop with NO number in
     its filename must be found by detection-discovery and corroborated by its
     bar-exact length. Whether that detection lands on 172 directly or needs
@@ -866,7 +866,7 @@ async def test_bpm_range_unlabelled_loop_discovered_by_detection(tmp_path, pro_l
 
 @pytest.mark.asyncio
 async def test_bpm_range_shows_both_sections_and_caches_in_displayed_order(
-    bpm_range_library, pro_license
+    bpm_range_library
 ):
     """When a labelled hit and an admitted unlabelled candidate both exist,
     the response splits into headed 'Labelled' / 'Detected, not labelled'
@@ -901,7 +901,7 @@ async def test_bpm_range_shows_both_sections_and_caches_in_displayed_order(
 
 
 @pytest.mark.asyncio
-async def test_mislabelled_file_is_never_reported_as_confirmed(tmp_path, pro_license):
+async def test_mislabelled_file_is_never_reported_as_confirmed(tmp_path):
     """End-to-end with REAL decoded audio, for the circular-confirmation bug.
 
     A genuine 172 loop carrying an explicit and WRONG "100bpm" tag. Because the

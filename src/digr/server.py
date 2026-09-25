@@ -7,7 +7,7 @@ import anyio
 from mcp.server.mcpserver import MCPServer
 
 from .config import Config
-from .tools._shared import set_libraries, set_license_key, warm_audio_stack
+from .tools._shared import set_libraries, warm_audio_stack
 from .tools.analyze import analyze_sample, read_midi
 from .tools.browse import (
     add_library,
@@ -17,7 +17,6 @@ from .tools.browse import (
     list_libraries,
     remove_library,
 )
-from .tools.license import activate_license
 from .tools.organize import (
     collect_samples,
     collect_search_results,
@@ -57,7 +56,7 @@ async def _audio_warmup_lifespan(_app: MCPServer) -> AsyncIterator[dict]:
     it does monopolize that thread until it finishes (it has no internal
     await points), so any request arriving mid-import queues briefly --
     `initialize` is what has a tight client-side timeout, so getting that
-    one out first is what matters. Pro tool calls that land before the
+    one out first is what matters. Audio tool calls that land before the
     import is done still hit the existing audio_warming_message() gate.
     """
     async with anyio.create_task_group() as tg:
@@ -79,9 +78,8 @@ def create_server(config: Config | None = None) -> MCPServer:
     if config is None:
         config = Config()
 
-    # Set libraries and license key for all tools to use
+    # Set libraries for all tools to use
     set_libraries(config.libraries)
-    set_license_key(config.license_key)
 
     mcp = MCPServer(
         "digr",
@@ -100,11 +98,6 @@ def create_server(config: Config | None = None) -> MCPServer:
             "second call with confirm=true executes\n"
             "- Use read_midi with track_index=-1 to list MIDI tracks before reading notes\n\n"
             "FILEPATHS: Pass as JSON array of strings for reliability.\n\n"
-            "PRO TOOLS (require license key): analyze_sample, search_samples_by_bpm, "
-            "read_midi, sort_samples, rename_with_metadata.\n\n"
-            "ACTIVATION: If the user has a Pro license key (or pastes one when a Pro "
-            "tool is blocked), call activate_license with that key. It saves the key "
-            "and unlocks Pro immediately — no restart needed.\n\n"
             "KEYWORDS: Use simple terms (e.g., 'kick', 'snare 909'). "
             "Multiple words are AND-matched against the full file path."
         ),
@@ -122,13 +115,7 @@ def create_server(config: Config | None = None) -> MCPServer:
     mcp.tool()(count_samples_in_folder)
     mcp.tool()(list_all_samples_in_folder)
 
-    # Undoing damage must never sit behind a licence. A lapsed or unactivated
-    # key would strand a user mid-rename, which is exactly when they need this
-    # most -- so it is registered with the free tools, not the Pro ones.
     mcp.tool()(undo_rename)
-
-    # --- License tools ---
-    mcp.tool()(activate_license)
 
     # --- Analyze tools ---
     mcp.tool()(analyze_sample)

@@ -11,7 +11,7 @@ from digr.tools.analyze import analyze_sample
 
 @pytest.mark.asyncio
 async def test_analyze_names_the_codec_instead_of_leaking_a_decode_error(
-    pro_license, tmp_path, write_ableton_aifc
+    tmp_path, write_ableton_aifc
 ):
     """The old behaviour let libsndfile's raw string through as
     'ERROR analyzing loop.aif: File contains data in an unimplemented
@@ -28,7 +28,7 @@ async def test_analyze_names_the_codec_instead_of_leaking_a_decode_error(
 
 @pytest.mark.asyncio
 async def test_analyze_still_works_on_a_decodable_aifc_file(
-    pro_license, tmp_path, write_ableton_aifc
+    tmp_path, write_ableton_aifc
 ):
     """Sanity check the other side of the gate: a merely-AIFC (not
     able-coded) file must not be caught by the same check and blocked."""
