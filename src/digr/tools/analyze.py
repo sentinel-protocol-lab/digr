@@ -185,8 +185,9 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
     # Extract tempo and time signature from all tracks
     tempo_bpm = 120.0  # MIDI's own default, used below when no set_tempo message exists
     tempo_found = False
-    time_sig_num = 4
+    time_sig_num = 4  # MIDI's own default, used below when no time_signature message exists
     time_sig_den = 4
+    time_sig_found = False
     for track in mid.tracks:
         for msg in track:
             if msg.type == "set_tempo":
@@ -195,18 +196,24 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
             elif msg.type == "time_signature":
                 time_sig_num = msg.numerator
                 time_sig_den = msg.denominator
+                time_sig_found = True
 
     tempo_line = (
         f"Tempo: {tempo_bpm:.1f} BPM\n"
         if tempo_found
         else f"Tempo: not set in file (MIDI default of {tempo_bpm:.1f} BPM)\n"
     )
+    time_sig_line = (
+        f"Time Signature: {time_sig_num}/{time_sig_den}\n"
+        if time_sig_found
+        else f"Time Signature: not set in file (MIDI default of {time_sig_num}/{time_sig_den})\n"
+    )
 
     # If track_index == -1, just list tracks
     if track_index == -1:
         result = f"MIDI File: {file_path.name}\n"
         result += tempo_line
-        result += f"Time Signature: {time_sig_num}/{time_sig_den}\n"
+        result += time_sig_line
         result += f"Ticks per beat: {tpb}\n"
         result += f"Length: {mid.length:.2f} seconds\n"
         result += f"Tracks: {len(mid.tracks)}\n\n"
@@ -252,7 +259,7 @@ async def read_midi(filepath: str, track_index: int = 0) -> str:
     # Build output
     result = f"MIDI File: {file_path.name}\n"
     result += tempo_line
-    result += f"Time Signature: {time_sig_num}/{time_sig_den}\n"
+    result += time_sig_line
     result += f"Track {track_index}: {track_name} -- {len(notes)} notes\n"
     result += f"Length: {mid.length:.2f} seconds\n\n"
 
