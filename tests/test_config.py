@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 
 from digr.config import Config, load_config
+from digr.tools._shared import (
+    add_library_entry,
+    remove_library_entry,
+    set_libraries,
+)
 
 
 def test_config_from_yaml_file(tmp_path):
@@ -77,3 +82,41 @@ def test_corrupt_yaml_config_does_not_crash(tmp_path, capsys):
     assert isinstance(config.libraries, dict)
     # The failure is reported on stderr (stdout carries the MCP protocol).
     assert "could not read config file" in capsys.readouterr().err
+
+
+def _start_server_with_auto_detected(monkeypatch, detected):
+    """Simulate a server start where auto-detect finds `detected`."""
+    monkeypatch.setattr("digr.config.auto_detect_libraries", lambda: dict(detected))
+    set_libraries(load_config().libraries)
+
+
+def test_removed_auto_detected_library_stays_removed_after_restart(tmp_path, monkeypatch):
+    auto_dir = tmp_path / "Samples"
+    auto_dir.mkdir()
+    _start_server_with_auto_detected(monkeypatch, {"Drive/Samples": auto_dir})
+
+    assert remove_library_entry("Drive/Samples")
+
+    assert "Drive/Samples" not in load_config().libraries
+
+
+def test_readded_library_survives_restart_after_removal(tmp_path, monkeypatch):
+    auto_dir = tmp_path / "Samples"
+    auto_dir.mkdir()
+    _start_server_with_auto_detected(monkeypatch, {"Drive/Samples": auto_dir})
+    remove_library_entry("Drive/Samples")
+
+    add_library_entry("Drive/Samples", auto_dir)
+
+    assert load_config().libraries.get("Drive/Samples") == auto_dir
+
+
+def test_removal_does_not_hide_other_auto_detected_libraries(tmp_path, monkeypatch):
+    kept, removed = tmp_path / "Kept", tmp_path / "Removed"
+    kept.mkdir()
+    removed.mkdir()
+    _start_server_with_auto_detected(monkeypatch, {"Kept": kept, "Removed": removed})
+
+    remove_library_entry("Removed")
+
+    assert load_config().libraries == {"Kept": kept}

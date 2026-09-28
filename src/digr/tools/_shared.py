@@ -153,17 +153,21 @@ def add_library_entry(name: str, path: Path) -> None:
 
 
 def remove_library_entry(name: str) -> bool:
-    """Remove a library from the in-memory store AND persist the change. Returns True if found."""
+    """Remove a library from the in-memory store AND persist the change. Returns True if found.
+
+    The path is also recorded as excluded, otherwise auto-detect would find it
+    again on the next start and the removal would silently undo itself.
+    """
     global _libraries
     if name not in _libraries:
         return False
-    del _libraries[name]
-    _save_libraries_to_config()
+    removed_path = _libraries.pop(name)
+    _save_libraries_to_config(exclude_path=removed_path)
     return True
 
 
-def _save_libraries_to_config() -> None:
-    """Persist the current libraries dict to config.yaml."""
+def _save_libraries_to_config(exclude_path: Path | None = None) -> None:
+    """Persist the current libraries dict (and any newly excluded path) to config.yaml."""
     from ..platform_detect import default_config_path
 
     try:
@@ -184,8 +188,15 @@ def _save_libraries_to_config() -> None:
             except Exception:
                 existing = {}
 
-    # Update libraries section only
     existing["libraries"] = {name: str(p) for name, p in _libraries.items()}
+
+    if exclude_path is not None:
+        excluded = existing.get("excluded_paths")
+        if not isinstance(excluded, list):
+            excluded = []
+        if str(exclude_path) not in excluded:
+            excluded.append(str(exclude_path))
+        existing["excluded_paths"] = excluded
 
     if yaml is not None:
         config_path.write_text(

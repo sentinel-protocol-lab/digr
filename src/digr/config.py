@@ -29,14 +29,22 @@ def load_config(
     """
     config = Config()
 
-    # 1. Auto-detect common locations for this OS
-    config.libraries = auto_detect_libraries()
+    file_path = Path(config_path) if config_path else default_config_path()
+    file_libs: dict[str, Path] = {}
+    excluded: set[str] = set()
+    if file_path.exists():
+        file_libs, excluded = _load_config_file(file_path)
+
+    # 1. Auto-detect common locations for this OS, minus any the user removed.
+    # The exclusion applies here only, so a path re-added by hand (step 2) wins.
+    config.libraries = {
+        name: path
+        for name, path in auto_detect_libraries().items()
+        if str(path) not in excluded
+    }
 
     # 2. Merge config file (if exists)
-    file_path = Path(config_path) if config_path else default_config_path()
-    if file_path.exists():
-        file_libs = _load_config_file(file_path)
-        config.libraries.update(file_libs)
+    config.libraries.update(file_libs)
 
     # 3. Merge env vars
     env_libs = os.environ.get("DIGR_LIBRARIES")
@@ -71,8 +79,8 @@ def load_config(
     return config
 
 
-def _load_config_file(path: Path) -> dict[str, Path]:
-    """Load library paths from a YAML or JSON config file.
+def _load_config_file(path: Path) -> tuple[dict[str, Path], set[str]]:
+    """Load library paths and removed (excluded) paths from a YAML or JSON config file.
 
     A file that can't be read or parsed (e.g. hand-edited into invalid YAML)
     must never crash server startup — the server still runs with auto-detected
@@ -109,13 +117,20 @@ def _load_config_file(path: Path) -> dict[str, Path]:
             f"continuing with auto-detected libraries.",
             file=sys.stderr,
         )
-        return {}
+        return {}, set()
 
     if not isinstance(data, dict):
-        return {}
+        return {}, set()
 
     libs = data.get("libraries", {})
     if not isinstance(libs, dict):
-        return {}
+        libs = {}
 
-    return {name: Path(path_str) for name, path_str in libs.items()}
+    excluded = data.get("excluded_paths", [])
+    if not isinstance(excluded, list):
+        excluded = []
+
+    return (
+        {name: Path(path_str) for name, path_str in libs.items()},
+        {p for p in excluded if isinstance(p, str)},
+    )
