@@ -2,6 +2,18 @@
 
 All notable changes to Digr are documented here.
 
+## [1.3.1] - 2026-09-28
+
+### Fixed
+- A library you removed with `remove_library` could come back on its own next time Digr started, if its folder was still auto-detected (an Ableton library, Splice, a drive's `Samples` folder). Removed libraries now stay removed.
+- `read_midi` showed "Tempo: 120.0 BPM" and "Time Signature: 4/4" for files that don't actually store a tempo or time signature, indistinguishable from a real reading. Both are now labelled "not set in file" when the file itself carries no value.
+
+### Removed
+- The `digr --update` command. To update Digr, download the latest release from GitHub and reinstall.
+
+### Security
+- Updated a dependency (`anyio`) to close two upstream security advisories.
+
 ## [1.3.0] - 2026-09-25
 
 ### Changed
